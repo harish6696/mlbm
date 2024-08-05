@@ -32,6 +32,10 @@ print("Velocity Magnitude Std: ", velocity_magnitude_std)
 #save the mean and variance as a .txt file
 path_to_save = "./VortexStreet_Re_200_2.6_sec"
 with open(os.path.join(path_to_save, 'mean_variance_2.6_sec.txt'), 'w') as f:
+    f.write("Resolution of the data: \n")
+    f.write("Shape of the density data: " + str(density_data.shape) + "\n")
+    f.write("Shape of the velocity data: " + str(velocity_data.shape) + "\n\n")
+    f.write("Mean and Variance of the data: \n")
     f.write("Density Mean: " + str(density_mean.item()) + "\n")
     f.write("Density Std: " + str(density_std.item()) + "\n")
     f.write("x_Velocity Mean: " + str(x_velocity_mean.item()) + "\n")

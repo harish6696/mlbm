@@ -15,6 +15,7 @@ files = os.listdir(path_to_files)
 density_files = [f for f in files if f.startswith('density')]
 velocity_files = [g for g in files if g.startswith('velocity')]
 
+
 #merge the files. data should have the shape (num_files, -1, 1)
 density_data = torch.load(os.path.join(path_to_files, density_files[0]))
 velocity_data = torch.load(os.path.join(path_to_files, velocity_files[0]))
@@ -48,3 +49,12 @@ print("Shape of the velocity data: ", velocity_data.shape)
 torch.save(density_data, os.path.join(path_to_save, 'density_karman_vortex_2.6.pt'))
 torch.save(velocity_data, os.path.join(path_to_save, 'velocity_karman_vortex_2.6.pt'))
 
+
+#load dataset
+density_data = torch.load(os.path.join(path_to_save, 'density_karman_vortex_2.6.pt'))
+velocity_data = torch.load(os.path.join(path_to_save, 'velocity_karman_vortex_2.6.pt'))
+
+#merge datasets
+mixed_data = torch.cat((density_data, velocity_data), dim=1)
+print("Shape of the mixed data: ", mixed_data.shape)
+torch.save(mixed_data, os.path.join(path_to_save, 'mixed_karman_vortex_2.6.pt'))

@@ -1,5 +1,5 @@
 #
-VortexStreet*
+#VortexStreet*
 datasets/*
 ml-runs/*
 .DS_Store
@@ -7,3 +7,4 @@ FNO*
 #everything starting with yaml
 #*.yaml
 *.pyc
+*.pt

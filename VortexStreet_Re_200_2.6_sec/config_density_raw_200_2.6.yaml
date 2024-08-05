@@ -1,0 +1,47 @@
+output_name: FNOkarmanDensity
+
+hydra:
+  run:
+    dir: ./${output_name}/hydra_outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+output:
+  dir: ./${output_name}
+
+data:
+  base_folder: ./VortexStreet_Re_200_2.6_sec
+  num_channels: 1
+  normalization_mean:
+  - 1.0729
+  normalization_std:
+  - 0.0056
+  field_name: density
+
+arch:
+  decoder:
+    out_features: ${data.num_channels}
+    layers: 1
+    layer_size: 128
+
+  fno:
+    in_channels: ${data.num_channels}
+    dimension: 2
+    latent_channels: 32
+    fno_layers: 5
+    fno_modes: 100
+    padding: 9
+
+scheduler:
+  initial_lr: 1.E-3
+  decay_rate: .85
+  decay_pseudo_epochs: 8
+
+training:
+  resolution: 256
+  batch_size: 32
+  rec_results_freq : 32
+  max_pseudo_epochs: 128
+  pseudo_epoch_sample_size: 2048
+
+validation:
+  sample_size: 256
+  validation_pseudo_epochs: 16
