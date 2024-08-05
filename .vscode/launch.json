@@ -18,7 +18,15 @@
             "program": "case_fno.py",
             "console": "integratedTerminal",
             "justMyCode": true
-        }
+        },
+        {
+            "name": "Debug MY_case_fno",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "case_my_fno.py",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
 
     ]
 }

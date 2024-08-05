@@ -8,7 +8,7 @@ output:
   dir: ./${output_name}
 
 data:
-  base_folder: /local/disk1/fno_modulus/mlbm/datasets
+  base_folder: ./datasets
   num_channels: 1
   normalization_mean:
   - 0.9989
