@@ -1,0 +1,3 @@
+initial_lr: 1.E-3
+decay_rate: .85
+decay_pseudo_epochs: 8

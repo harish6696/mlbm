@@ -100,9 +100,8 @@ class GridValidator:
         plt.close("all")
         plt.rcParams.update({"font.size": self.font_size})
         fig, ax = plt.subplots(self.num_channels + 1, num_plots, figsize=(15 * num_plots, 15 * (self.num_channels + 1)), sharey=True)
-        # if self.num_channels == 1:
-        #     ax = [ax]
 
+        #plot for each and every channel for the first batch element
         for channel in range(self.num_channels):
             # pick first sample from batch
             invar_plot = invar[0, channel, :, :]
@@ -114,7 +113,8 @@ class GridValidator:
             im[channel][3] = ax[channel][3].imshow(np.clip((prediction_plot - target_plot) / target_plot, a_min=-1.0, a_max=1.0))
             im[channel][4] = ax[channel][4].imshow(target_plot - invar_plot)
 
-        invar_plot = np.linalg.norm(invar[0, ...], axis=0)
+        #magnitude plot in the last row, of the first batch element. invar.shape = [#num_batch_elements,#num_channels,x_res,y_res]
+        invar_plot = np.linalg.norm(invar[0, ...], axis=0)  #invar[0, ...].shape = [#num_channels, 512, 256], now axis=0 means it will calculate the norm over the num. channels.
         target_plot = np.linalg.norm(target[0, ...], axis=0)
         prediction_plot = np.linalg.norm(prediction[0, ...], axis=0)
         im[self.num_channels][0] = ax[self.num_channels][0].imshow(invar_plot)
@@ -123,6 +123,7 @@ class GridValidator:
         im[self.num_channels][3] = ax[self.num_channels][3].imshow(np.clip((prediction_plot - target_plot) / target_plot, a_min=-1.0, a_max=1.0))
         im[self.num_channels][4] = ax[self.num_channels][4].imshow(target_plot - invar_plot)
 
+        #final loop to add colorbar to each plot
         for channel in range(self.num_channels + 1):
             for plot in range(num_plots):
                 fig.colorbar(im[channel][plot], ax=ax[channel][plot], location="bottom", fraction=0.046, pad=0.04)
@@ -265,7 +266,6 @@ class VTKvalidator:
 
 
         return loss
-
 
 class DensityVTKvalidator:
     """Grid Validator

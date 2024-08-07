@@ -1,0 +1,10 @@
+training:
+  resolution: 256
+  batch_size: 16
+  rec_results_freq : 32 
+  max_pseudo_epochs: 128 
+  pseudo_epoch_sample_size: 2048
+
+validation:
+  sample_size: 256
+  validation_pseudo_epochs: 8

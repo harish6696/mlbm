@@ -1,4 +1,4 @@
-output_name: FNOkarmanDensity
+output_name: FNOkarmanVelocity_re_200_default_density_data
 
 hydra:
   run:
@@ -27,7 +27,7 @@ arch:
     dimension: 2
     latent_channels: 32
     fno_layers: 5
-    fno_modes: 100
+    fno_modes: 40
     padding: 9
 
 scheduler:
@@ -44,4 +44,4 @@ training:
 
 validation:
   sample_size: 256
-  validation_pseudo_epochs: 16
+  validation_pseudo_epochs: 8

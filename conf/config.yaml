@@ -1,0 +1,9 @@
+defaults:
+  - data: default_config
+  - arch: default_arch
+  - output: default_output
+  - scheduler: default_scheduler
+  - train: default_training
+  - _self_
+
+gpu_id: 0

@@ -36,9 +36,10 @@ from validator import GridValidator
 from datasets.karman_street_dataset import KarmanStreetDataset, MixedReKarmanStreetDataset
 
 from torchvision.transforms import Normalize
-
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]='4'
 #using 'velocity' to train the model.
-@hydra.main(version_base="1.3", config_path=".", config_name="config_velocity.yaml")
+@hydra.main(version_base="1.3", config_path=".", config_name="config_density.yaml")
 def main(cfg: DictConfig):   
     DistributedManager.initialize()  # Only call this once in the entire script!
     dist = DistributedManager()  # call if required elsewhere
@@ -100,7 +101,7 @@ def main(cfg: DictConfig):
     dataset_train = MixedReKarmanStreetDataset(base_folder=cfg.data.base_folder, Re_list=[200], field_name=cfg.data.field_name, num_channels=cfg.data.num_channels, transform=transform, target_transform=transform)
     #dataset_train.__dict__.keys() = dict_keys(['data_x', 'data_y', 'num_elements', 'transform', 'target_transform'])
     #why even bother with creating dataset_val here??since it is not used in the upcoming code.
-    dataset_val = MixedReKarmanStreetDataset(base_folder=cfg.data.base_folder, Re_list=[125, 175], field_name=cfg.data.field_name, num_channels=cfg.data.num_channels, transform=transform, target_transform=transform)
+    #dataset_val = MixedReKarmanStreetDataset(base_folder=cfg.data.base_folder, Re_list=[125, 175], field_name=cfg.data.field_name, num_channels=cfg.data.num_channels, transform=transform, target_transform=transform)
     #dataset_val.__dict__['data_x'].shape = torch.Size([1300, 2, 512, 256]), it is 1300 as there are two reynolds numbers in validation
     dataset_train, dataset_val = random_split(
         dataset_train, [0.7, 0.3], generator=torch.Generator().manual_seed(42)
@@ -208,7 +209,7 @@ def main(cfg: DictConfig):
                 # validation_iters = 16 (maximum)
                 # len(val_dataloader.__dict__['dataset'].__dict__['indices']) = 195, i.e. total of 195 timestep information is available for validation.
                 # 195/16 = 12.1875, so the loop will run for 12 iterations and terminate.
-                for _, batch in zip(range(validation_iters), val_dataloader):
+                for step, batch in zip(range(validation_iters), val_dataloader):
                     # val_loss = validator.compare(
                     #     invar=batch[0].to(dist.device),
                     #     target=batch[1].to(dist.device),
@@ -218,7 +219,7 @@ def main(cfg: DictConfig):
                     val_loss = validator.compute_only_loss(target=batch[1].to(dist.device)
                                                            ,prediction=forward_eval(batch[0].to(dist.device)))
                     total_loss += val_loss
-                logger.log_epoch({"Validation error": total_loss / validation_iters}) #should be divided by the final step number
+                logger.log_epoch({"Validation error": total_loss / step}) #should be divided by the final step number
 
         # update learning rate
         if pseudo_epoch % cfg.scheduler.decay_pseudo_epochs == 0:

@@ -8,3 +8,9 @@ FNO*
 #*.yaml
 *.pyc
 *.pt
+outputs/*
+*.out
+*.sh
+*.png
+DEBUG*
+*.out

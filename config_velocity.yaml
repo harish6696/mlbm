@@ -1,4 +1,4 @@
-output_name: FNOkarmanVelocity_debug
+output_name: FNOkarmanVelocity_re_200_default_velocity_data
 
 hydra:
   run:
@@ -46,4 +46,4 @@ training:
 
 validation:
   sample_size: 256
-  validation_pseudo_epochs: 2
+  validation_pseudo_epochs: 8

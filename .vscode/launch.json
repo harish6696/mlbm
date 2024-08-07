@@ -25,6 +25,12 @@
             "request": "launch",
             "program": "case_my_fno.py",
             "console": "integratedTerminal",
+            "args": [
+                "data=config_density_re_200_period_1.yaml",
+                "output.output_name=DEBUG",
+                "gpu_id=3",
+                "train.validation.validation_pseudo_epochs=2"
+            ],
             "justMyCode": true
         },
 

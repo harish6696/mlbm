@@ -1,0 +1,7 @@
+base_folder: ./VortexStreet_Re_200_period_1
+num_channels: 1
+normalization_mean:
+- 1.0729
+normalization_std:
+- 0.0056
+field_name: density
