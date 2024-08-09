@@ -39,11 +39,7 @@ from torchvision.transforms import Normalize
 
 import os
 import datetime
-os.environ["HYDRA_FULL_ERROR"]="1"
-from urllib.parse import urlparse
-from mlflow import get_tracking_uri
-import dagshub
-
+import wandb
 
 #using 'velocity' to train the model.
 @hydra.main(version_base="1.3", config_path="./conf", config_name="config.yaml")
@@ -63,19 +59,31 @@ def main(cfg: DictConfig):
     # initialize monitoring
     log = PythonLogger(name="LBM_fno")
 
-    dagshub.init(repo_owner='harish6696', repo_name='mlbm', mlflow=True)
-
     # initialize monitoring
-    initialize_mlflow(
-        experiment_name="LBM_FNO",
-        experiment_desc="training an FNO model for the LBM problem for dataset with Re=200 and time duration of 2.6 seconds",
-        run_name="LBM FNO training",
-        run_desc="training FNO for LBM",
-        user_name="hr",
-        mode="online",
-        tracking_location="https://dagshub.com/harish6696/mlbm.mlflow"
-    )
-    LaunchLogger.initialize(use_mlflow=True)  # Modulus launch logger
+    # initialize_mlflow(
+    #     experiment_name="LBM_FNO",
+    #     experiment_desc="training an FNO model for the LBM problem for dataset with Re=200 and time duration of 2.6 seconds",
+    #     run_name="LBM FNO training",
+    #     run_desc="training FNO for LBM",
+    #     user_name="hr",
+    #     mode="online",
+    #     tracking_location="https://dagshub.com/harish6696/mlbm.mlflow"
+    # )
+    
+    if cfg.output.logging.wandb:
+        print("logggin in weights and biases")
+        wandb_config = OmegaConf.to_container(cfg)
+        run_name = f"{'FNO'}_{cfg.data.field_name}_{formatted_datetime}"
+       #wandb.login(key="ed2cb953beb68935256b2a70f85c6ca954ab36bb")
+        wandb_run = wandb.init(
+                project=cfg.output.logging.wandb_project,
+                entity=cfg.output.logging.wandb_entity,
+                name=run_name,
+                config=wandb_config,
+                save_code=True,
+            )
+
+    LaunchLogger.initialize(use_mlflow=False)  # Modulus launch logger
     #tracking_location=str(result_folder.joinpath(f"mlflow_output_{dist.rank}")),
     # define model, loss, optimiser, scheduler, data loader
     model = FNO(
@@ -168,6 +176,8 @@ def main(cfg: DictConfig):
             for i, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
                 loss = forward_train(batch[0].to(dist.device), batch[1].to(dist.device)) #batch[0].shape [16,2,512,256]; batch[1].shape [16,2,512,256]
                 logger.log_minibatch({"loss": loss.detach()})
+                if cfg.output.logging.wandb:
+                    wandb_run.log({"loss": loss.detach().item()},i)
             logger.log_epoch({"Learning Rate": optimizer.param_groups[0]["lr"]})
 
         # save checkpoint
