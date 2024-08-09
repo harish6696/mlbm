@@ -39,6 +39,11 @@ from torchvision.transforms import Normalize
 
 import os
 import datetime
+os.environ["HYDRA_FULL_ERROR"]="1"
+from urllib.parse import urlparse
+from mlflow import get_tracking_uri
+import dagshub
+
 
 #using 'velocity' to train the model.
 @hydra.main(version_base="1.3", config_path="./conf", config_name="config.yaml")
@@ -57,6 +62,9 @@ def main(cfg: DictConfig):
     #print(OmegaConf.to_yaml(cfg))
     # initialize monitoring
     log = PythonLogger(name="LBM_fno")
+
+    dagshub.init(repo_owner='harish6696', repo_name='mlbm', mlflow=True)
+
     # initialize monitoring
     initialize_mlflow(
         experiment_name="LBM_FNO",
@@ -65,10 +73,10 @@ def main(cfg: DictConfig):
         run_desc="training FNO for LBM",
         user_name="hr",
         mode="online",
-        tracking_location=str(result_folder.joinpath(f"mlflow_output_{dist.rank}")),
+        tracking_location="https://dagshub.com/harish6696/mlbm.mlflow"
     )
     LaunchLogger.initialize(use_mlflow=True)  # Modulus launch logger
-
+    #tracking_location=str(result_folder.joinpath(f"mlflow_output_{dist.rank}")),
     # define model, loss, optimiser, scheduler, data loader
     model = FNO(
         in_channels=cfg.arch.fno.in_channels,           # 2 for velocity

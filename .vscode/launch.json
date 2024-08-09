@@ -31,7 +31,7 @@
                 "gpu_id=3",
                 "train.validation.validation_pseudo_epochs=2"
             ],
-            "justMyCode": true
+            "justMyCode": false
         },
 
     ]
