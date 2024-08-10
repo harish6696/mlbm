@@ -41,50 +41,22 @@ import os
 import datetime
 import wandb
 
-#using 'velocity' to train the model.
 @hydra.main(version_base="1.3", config_path="./conf", config_name="config.yaml")
 def main(cfg: DictConfig):   
     os.environ["CUDA_VISIBLE_DEVICES"]=str(cfg.gpu_id)
 
-    current_datetime = datetime.datetime.now()
-    # Format the date and time as a string
-    formatted_datetime = current_datetime.strftime("%Y%m%d-%H%M%S")
-
+    formatted_datetime = cfg.output.timestamp
 
     DistributedManager.initialize()  # Only call this once in the entire script!
     dist = DistributedManager()  # call if required elsewhere
 
-    result_folder = Path(cfg.output.dir).absolute()
+    #result_folder = Path(cfg.output.dir).absolute()
     #print(OmegaConf.to_yaml(cfg))
     # initialize monitoring
     log = PythonLogger(name="LBM_fno")
 
-    # initialize monitoring
-    # initialize_mlflow(
-    #     experiment_name="LBM_FNO",
-    #     experiment_desc="training an FNO model for the LBM problem for dataset with Re=200 and time duration of 2.6 seconds",
-    #     run_name="LBM FNO training",
-    #     run_desc="training FNO for LBM",
-    #     user_name="hr",
-    #     mode="online",
-    #     tracking_location="https://dagshub.com/harish6696/mlbm.mlflow"
-    # )
-    
-    if cfg.output.logging.wandb:
-        print("logggin in weights and biases")
-        wandb_config = OmegaConf.to_container(cfg)
-        run_name = f"{'FNO'}_{cfg.data.field_name}_{formatted_datetime}"
-       #wandb.login(key="ed2cb953beb68935256b2a70f85c6ca954ab36bb")
-        wandb_run = wandb.init(
-                project=cfg.output.logging.wandb_project,
-                entity=cfg.output.logging.wandb_entity,
-                name=run_name,
-                config=wandb_config,
-                save_code=True,
-            )
+    LaunchLogger.initialize()  
 
-    LaunchLogger.initialize(use_mlflow=False)  # Modulus launch logger
-    #tracking_location=str(result_folder.joinpath(f"mlflow_output_{dist.rank}")),
     # define model, loss, optimiser, scheduler, data loader
     model = FNO(
         in_channels=cfg.arch.fno.in_channels,           # 2 for velocity
@@ -117,7 +89,8 @@ def main(cfg: DictConfig):
     
     ckpt_args = {
         #add the date and time to the results folder to create the path: 
-        "path": str(result_folder.joinpath(f"{cfg.data.field_name}_{formatted_datetime}")),
+        #"path": str(result_folder.joinpath(f"{cfg.output.output_name}_{cfg.data.field_name}_{formatted_datetime}")),
+        "path": os.path.dirname(os.getcwd()),
         "optimizer": optimizer,
         "scheduler": scheduler,
         "models": model,
@@ -168,18 +141,37 @@ def main(cfg: DictConfig):
     else:
         log.warning(f"Resuming training from pseudo epoch {loaded_pseudo_epoch+1}.")
 
+    #hardcoded (find a better way to do this)
+    cfg.arch.decoder.out_features = cfg.data.num_channels
+    cfg.arch.fno.in_channels = cfg.data.num_channels
+
+    if cfg.output.logging.wandb:
+        wandb_config = OmegaConf.to_container(cfg)
+        wandb_config["num_model_params"] = sum(p.numel() for p in model.parameters())
+        wandb_config["loaded_epoch"] = loaded_pseudo_epoch
+        
+        run_name = f"{cfg.output.output_name}_{cfg.data.field_name}_{formatted_datetime}"
+        wandb_run = wandb.init(
+                project=cfg.output.logging.wandb_project,
+                entity=cfg.output.logging.wandb_entity,
+                name=run_name,
+                config=wandb_config,
+                save_code=True,
+            )
+    
     for pseudo_epoch in range(
         max(1, loaded_pseudo_epoch + 1), cfg.train.training.max_pseudo_epochs + 1
     ):
         # Training loop
         with LaunchLogger(**log_args, epoch=pseudo_epoch) as logger:
-            for i, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
+            for _, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
                 loss = forward_train(batch[0].to(dist.device), batch[1].to(dist.device)) #batch[0].shape [16,2,512,256]; batch[1].shape [16,2,512,256]
                 logger.log_minibatch({"loss": loss.detach()})
                 if cfg.output.logging.wandb:
-                    wandb_run.log({"loss": loss.detach().item()},i)
+                    wandb_run.log({"train/loss": loss.detach().item()},pseudo_epoch)
             logger.log_epoch({"Learning Rate": optimizer.param_groups[0]["lr"]})
-
+            if cfg.output.logging.wandb:
+                wandb_run.log({"train/Learning Rate": optimizer.param_groups[0]["lr"]},pseudo_epoch)
         # save checkpoint
         if pseudo_epoch % cfg.train.training.rec_results_freq == 0:
             save_checkpoint(**ckpt_args, epoch=pseudo_epoch)
@@ -191,23 +183,29 @@ def main(cfg: DictConfig):
                 #################  Note  #######################
                 # validation_iters = 16 (maximum)
                 # len(val_dataloader.__dict__['dataset'].__dict__['indices']) = 414, i.e. total of 414 timestep information is available for validation.
-                # 414/16 = 25.875, so the loop will run for only "16" iterations and terminate.  "TO BE FIXED"
+                # 414/16 = 25.875, so the loop will run for only "16" iterations and terminate. 
                 for step, batch in zip(range(validation_iters), val_dataloader):
-                    val_loss = validator.compare(
-                        invar=batch[0].to(dist.device),
-                        target=batch[1].to(dist.device),
-                        prediction=forward_eval(batch[0].to(dist.device)),
-                        step=pseudo_epoch,
-                    )
-                    #val_loss = validator.compute_only_loss(target=batch[1].to(dist.device)
-                    #                                       ,prediction=forward_eval(batch[0].to(dist.device)))
+                #for step, batch in zip(range(len(val_dataloader)), val_dataloader):
+                    # val_loss = validator.compare(
+                    #     invar=batch[0].to(dist.device),
+                    #     target=batch[1].to(dist.device),
+                    #     prediction=forward_eval(batch[0].to(dist.device)),
+                    #     step=pseudo_epoch,
+                    # )
+                    val_loss = validator.compute_only_loss(target=batch[1].to(dist.device)
+                                                          ,prediction=forward_eval(batch[0].to(dist.device)))
                     total_loss += val_loss
                 logger.log_epoch({"Validation error": total_loss / step}) #should be divided by the final step number
+                if cfg.output.logging.wandb:
+                    wandb_run.log({"valid/Validation error": total_loss / step},pseudo_epoch)
 
         # update learning rate
         if pseudo_epoch % cfg.scheduler.decay_pseudo_epochs == 0:
             scheduler.step()
-
+    
+    if cfg.output.logging.wandb:
+        wandb.finish()
+    
     save_checkpoint(**ckpt_args, epoch=cfg.train.training.max_pseudo_epochs)
     log.success("Training completed *yay*")
 

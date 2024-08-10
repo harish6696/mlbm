@@ -1,0 +1,11 @@
+base_folder: ./Datasets/VortexStreet_Re_200_default
+num_channels: 3
+normalization_mean:
+- 0.9989
+- 0.020051
+- 0.0
+normalization_std:
+- 0.005
+- 0.0034
+- 0.0037
+field_name: mixed

@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 from pathlib import Path
 from typing import List
-
+from hydra.utils import to_absolute_path
 class KarmanStreetDataset(Dataset):
     
     def __init__(self, data_file: str, transform=None, target_transform=None):
@@ -22,7 +22,6 @@ class KarmanStreetDataset(Dataset):
         # new_indices = torch.randperm(self.num_elements)
         # self.data_x = self.data_x[new_indices]
         # self.data_y = self.data_y[new_indices]
-
 
         self.transform = transform
         self.target_transform = target_transform
@@ -115,10 +114,9 @@ class PorousDataset(Dataset):
         return input_tensor, output_tensor
     
 class SingleReKarmanStreetDataset(Dataset):
-    
     def __init__(self, base_folder: str, field_name: str, num_channels: int, transform=None, target_transform=None):
         #extract the data from base folder which starts with the field name and can end with anything
-        data_file = list(Path(base_folder).glob(f"{field_name}*"))[0]
+        data_file = list(Path(to_absolute_path(base_folder)).glob(f"{field_name}*"))[0]
         self.data = torch.load(data_file, weights_only=True)
         self.data_x = self.data[:-1]
         self.data_y = self.data[1:]  #one step prediction
