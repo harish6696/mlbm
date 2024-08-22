@@ -1,12 +1,7 @@
-
-output_name: FNOkarman
-dir: ./${output.output_name}
-
-hydra:
-  run:
-    dir: ./${output.output_name}/hydra_outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+output_name: FNO_Karman
+timestamp: ${now:%Y%m%d}-${now:%H%M%S}
 
 logging: 
   wandb: False  
   wandb_project: None
-  wandb_entity: "rharish6696"
+  wandb_entity: None
