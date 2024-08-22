@@ -164,13 +164,14 @@ def main(cfg: DictConfig):
     ):
         # Training loop
         with LaunchLogger(**log_args, epoch=pseudo_epoch) as logger:
-            for _, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
-                loss = forward_train(batch[0].to(dist.device), batch[1].to(dist.device)) #batch[0].shape [16,2,512,256]; batch[1].shape [16,2,512,256]
-                logger.log_minibatch({"loss": loss.detach()})
-                if cfg.output.logging.wandb:
-                    wandb_run.log({"train/loss": loss.detach().item()},pseudo_epoch)
+            minibatch_losses = 0.0
+            for step, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
+                minibatch_loss = forward_train(batch[0].to(dist.device), batch[1].to(dist.device)) #batch[0].shape [16,2,512,256]; batch[1].shape [16,2,512,256]
+                logger.log_minibatch({"loss": minibatch_loss.detach()}) #even if we pass minibatch_loss, the log_minibatch will accumulate and divideby the number of steps at the end of the epoch.
+                minibatch_losses += minibatch_loss.detach().item()
             logger.log_epoch({"Learning Rate": optimizer.param_groups[0]["lr"]})
             if cfg.output.logging.wandb:
+                wandb_run.log({"train/loss": minibatch_losses/(step+1)},pseudo_epoch)
                 wandb_run.log({"train/Learning Rate": optimizer.param_groups[0]["lr"]},pseudo_epoch)
         # save checkpoint
         if pseudo_epoch % cfg.train.training.rec_results_freq == 0:
@@ -178,7 +179,7 @@ def main(cfg: DictConfig):
 
         # validation step
         if pseudo_epoch % cfg.train.validation.validation_pseudo_epochs == 0:
-            with LaunchLogger("valid", epoch=pseudo_epoch) as logger:
+            with LaunchLogger("valid", epoch=pseudo_epoch) as logger: #after one epoch, he logging happens here.
                 total_loss = 0.0
                 #################  Note  #######################
                 # validation_iters = 16 (maximum)

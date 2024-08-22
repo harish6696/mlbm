@@ -1,4 +1,4 @@
-base_folder: ./Datasets/VortexStreet_Re_200_period_1
+base_folder: ./Datasets/VortexStreet_Re_200_default
 num_channels: 2
 normalization_mean:
 - 0.020051

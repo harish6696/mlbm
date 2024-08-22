@@ -49,7 +49,6 @@ print("Shape of the velocity data: ", velocity_data.shape)
 torch.save(density_data, os.path.join(path_to_save, 'density_karman_vortex_2.6.pt'))
 torch.save(velocity_data, os.path.join(path_to_save, 'velocity_karman_vortex_2.6.pt'))
 
-
 #load dataset
 density_data = torch.load(os.path.join(path_to_save, 'density_karman_vortex_2.6.pt'))
 velocity_data = torch.load(os.path.join(path_to_save, 'velocity_karman_vortex_2.6.pt'))

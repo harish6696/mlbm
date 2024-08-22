@@ -120,6 +120,8 @@ class SingleReKarmanStreetDataset(Dataset):
         self.data = torch.load(data_file, weights_only=True)
         self.data_x = self.data[:-1]
         self.data_y = self.data[1:]  #one step prediction
+        self.mean = torch.mean(self.data, dim=(0,2,3))
+        self.std_dev = torch.std(self.data, dim=(0,2,3))
 
         self.num_elements = len(self.data_x)
         self.transform = transform
@@ -136,3 +138,7 @@ class SingleReKarmanStreetDataset(Dataset):
         if self.target_transform:
             output_tensor = self.target_transform(output_tensor)
         return input_tensor, output_tensor
+    
+    def undo_transform(self, transformed_sample):
+        # Assuming the transform was normalization
+        return transformed_sample * self.std_dev[:, None, None] + self.mean[:, None, None]
