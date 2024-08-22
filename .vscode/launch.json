@@ -28,7 +28,7 @@
             "args": [
                 "data=config_density_re_200_period_1.yaml",
                 "output.output_name=DEBUG",
-                "gpu_id=3",
+                "gpu_id=0",
                 "train.validation.validation_pseudo_epochs=2",
                 "output=wandb_output.yaml"
             ],
