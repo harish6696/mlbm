@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 # from lightning import Trainer
 from modulus.models.mlp import FullyConnected
 from modulus.models.fno import FNO
@@ -33,12 +32,12 @@ from torch.utils.data import Dataset, DataLoader
 import torch
 from torch.utils.data import random_split
 from validator import GridValidator
-from datasets.karman_street_dataset import KarmanStreetDataset, MixedReKarmanStreetDataset, SingleReKarmanStreetDataset
+from old_datasets.karman_street_dataset import KarmanStreetDataset, MixedReKarmanStreetDataset, SingleReKarmanStreetDataset
 
 from torchvision.transforms import Normalize
 
 import os
-import datetime
+import shutil
 import wandb
 
 @hydra.main(version_base="1.3", config_path="./conf", config_name="config.yaml")
@@ -159,6 +158,8 @@ def main(cfg: DictConfig):
                 save_code=True,
             )
     
+    best_validation_error = None
+    
     for pseudo_epoch in range(
         max(1, loaded_pseudo_epoch + 1), cfg.train.training.max_pseudo_epochs + 1
     ):
@@ -173,7 +174,8 @@ def main(cfg: DictConfig):
             if cfg.output.logging.wandb:
                 wandb_run.log({"train/loss": minibatch_losses/(step+1)},pseudo_epoch)
                 wandb_run.log({"train/Learning Rate": optimizer.param_groups[0]["lr"]},pseudo_epoch)
-        # save checkpoint
+        
+        # save checkpoint (to restart the training from the last saved checkpoint)
         if pseudo_epoch % cfg.train.training.rec_results_freq == 0:
             save_checkpoint(**ckpt_args, epoch=pseudo_epoch)
 
@@ -197,6 +199,25 @@ def main(cfg: DictConfig):
                                                           ,prediction=forward_eval(batch[0].to(dist.device)))
                     total_loss += val_loss
                 logger.log_epoch({"Validation error": total_loss / step}) #should be divided by the final step number
+                
+                #save the checkpoint with the best validation error
+                if best_validation_error is None or best_validation_error > (total_loss / step):
+                    best_validation_error = total_loss / step #new best validation error
+                    #if checkpoint exists, overwrite it with the new best validation error
+                    print(f"best_validation_error so far: {best_validation_error}")
+                    best_ckpt_args = {
+                            "path": os.path.join(os.path.dirname(os.getcwd()),"best"),
+                            "optimizer": optimizer,
+                            "scheduler": scheduler,
+                            "models": model,
+                        }
+                    #remove all the files inside the path
+                    if os.path.exists(os.path.join(os.path.dirname(os.getcwd()),"best")):
+                        shutil.rmtree(os.path.join(os.path.dirname(os.getcwd()),"best"))
+                    
+                    os.makedirs(os.path.join(os.path.dirname(os.getcwd()),"best"))
+                    save_checkpoint(**best_ckpt_args, epoch=pseudo_epoch)       
+                
                 if cfg.output.logging.wandb:
                     wandb_run.log({"valid/Validation error": total_loss / step},pseudo_epoch)
 

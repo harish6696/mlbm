@@ -33,7 +33,7 @@ from torch.utils.data import Dataset, DataLoader
 import torch
 from torch.utils.data import random_split
 from validator import GridValidator
-from datasets.karman_street_dataset import KarmanStreetDataset, MixedReKarmanStreetDataset
+from old_datasets.karman_street_dataset import KarmanStreetDataset, MixedReKarmanStreetDataset
 
 from torchvision.transforms import Normalize
 import os

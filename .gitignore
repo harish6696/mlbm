@@ -17,3 +17,5 @@ DEBUG*
 wandb
 *.txt
 *.gif
+
+old_datasets/*
