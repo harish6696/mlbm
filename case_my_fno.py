@@ -13,13 +13,12 @@
 # limitations under the License.
 
 # from lightning import Trainer
-from modulus.models.mlp import FullyConnected
 from modulus.models.fno import FNO
-from modulus.models.afno import AFNO
 from modulus.distributed import DistributedManager
 from modulus.utils import StaticCaptureTraining, StaticCaptureEvaluateNoGrad
 from modulus.launch.utils import load_checkpoint, save_checkpoint
-from modulus.launch.logging import PythonLogger, LaunchLogger, initialize_mlflow
+from modulus.launch.logging import PythonLogger, LaunchLogger
+from modulus import Module
 from omegaconf import DictConfig, OmegaConf
 
 from torch.nn import MSELoss
@@ -49,8 +48,6 @@ def main(cfg: DictConfig):
     DistributedManager.initialize()  # Only call this once in the entire script!
     dist = DistributedManager()  # call if required elsewhere
 
-    #result_folder = Path(cfg.output.dir).absolute()
-    #print(OmegaConf.to_yaml(cfg))
     # initialize monitoring
     log = PythonLogger(name="LBM_fno")
 
@@ -78,14 +75,21 @@ def main(cfg: DictConfig):
     )
 
     transform = Normalize(mean=cfg.data.normalization_mean, std=cfg.data.normalization_std)
-    dataset_train = SingleReKarmanStreetDataset(base_folder=cfg.data.base_folder, field_name=cfg.data.field_name, num_channels=cfg.data.num_channels, transform=transform, target_transform=transform)
+
+    dataset_train = SingleReKarmanStreetDataset(base_folder=cfg.data.base_folder, 
+                                                field_name=cfg.data.field_name, 
+                                                num_channels=cfg.data.num_channels, 
+                                                transform=transform, 
+                                                target_transform=transform)
+    
     #dataset_train.__dict__.keys() = dict_keys(['data_x', 'data_y', 'num_elements', 'transform', 'target_transform'])
     dataset_train, dataset_val = random_split(
         dataset_train, [0.7, 0.3], generator=torch.Generator().manual_seed(42)
     ) #len(dataset_val.__dict__['indices'])
+    
     train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True)
     val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True)
-    
+
     ckpt_args = {
         #add the date and time to the results folder to create the path: 
         #"path": str(result_folder.joinpath(f"{cfg.output.output_name}_{cfg.data.field_name}_{formatted_datetime}")),
@@ -158,6 +162,8 @@ def main(cfg: DictConfig):
                 save_code=True,
             )
     
+    
+    ################# Training #######################
     best_validation_error = None
     
     for pseudo_epoch in range(
@@ -195,15 +201,15 @@ def main(cfg: DictConfig):
                     #     prediction=forward_eval(batch[0].to(dist.device)),
                     #     step=pseudo_epoch,
                     # )
+                    # batch[0].shape = [16,2,512,256]; batch[1].shape = [16,2,512,256]
                     val_loss = validator.compute_only_loss(target=batch[1].to(dist.device)
                                                           ,prediction=forward_eval(batch[0].to(dist.device)))
                     total_loss += val_loss
-                logger.log_epoch({"Validation error": total_loss / step}) #should be divided by the final step number
+                logger.log_epoch({"Validation error": total_loss / step}) #validation error per epoch
                 
-                #save the checkpoint with the best validation error
+                #save the checkpoint with the best validation error inside the folder "best"
                 if best_validation_error is None or best_validation_error > (total_loss / step):
                     best_validation_error = total_loss / step #new best validation error
-                    #if checkpoint exists, overwrite it with the new best validation error
                     print(f"best_validation_error so far: {best_validation_error}")
                     best_ckpt_args = {
                             "path": os.path.join(os.path.dirname(os.getcwd()),"best"),
@@ -225,11 +231,39 @@ def main(cfg: DictConfig):
         if pseudo_epoch % cfg.scheduler.decay_pseudo_epochs == 0:
             scheduler.step()
     
-    if cfg.output.logging.wandb:
-        wandb.finish()
-    
     save_checkpoint(**ckpt_args, epoch=cfg.train.training.max_pseudo_epochs)
     log.success("Training completed *yay*")
+
+    if cfg.output.logging.wandb:
+        wandb.finish()
+
+    ################# Inference #######################
+    path = os.path.join(os.path.dirname(os.getcwd()),"best")
+    model_inf = Module.from_checkpoint(path).to(dist.device)
+    model_inf.eval()
+
+    """
+    with torch.inference_mode():
+                #loading the data
+                data_x = data_x_total[0]
+                data_y = data_y_total[0]
+                input = data_x.to("cuda")
+                data_y = data_y.to("cuda")
+ 
+                for t in range(prediction_timesteps):    
+                    output = model_inf(input)
+                    input = output.detach().clone()
+    """
+
+
+    with torch.inference_mode():
+        pass
+            
+            
+
+
+
+
 
 if __name__ == "__main__":
     main()
