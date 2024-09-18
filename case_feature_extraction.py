@@ -55,8 +55,8 @@ def main(cfg: DictConfig):
 
     # define model, loss, optimiser, scheduler, data loader
     model = FNO(
-        in_channels=cfg.arch.fno.in_channels,           
-        out_channels=cfg.arch.decoder.out_features,     
+        in_channels=eval(str(cfg.arch.fno.in_channels)),           
+        out_channels=eval(str(cfg.arch.decoder.out_features)),     
         decoder_layers=cfg.arch.decoder.layers,         
         decoder_layer_size=cfg.arch.decoder.layer_size, 
         dimension=cfg.arch.fno.dimension,              
@@ -92,14 +92,12 @@ def main(cfg: DictConfig):
 
     dataset_train, dataset_val = random_split(
         dataset_train, [0.7, 0.3], generator=torch.Generator().manual_seed(42)
-    ) #len(dataset_val.__dict__['indices'])
+    ) 
     
     train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True)
     val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True)
 
     ckpt_args = {
-        #add the date and time to the results folder to create the path: 
-        #"path": str(result_folder.joinpath(f"{cfg.output.output_name}_{cfg.data.field_name}_{formatted_datetime}")),
         "path": os.path.dirname(os.getcwd()),
         "optimizer": optimizer,
         "scheduler": scheduler,
@@ -168,8 +166,7 @@ def main(cfg: DictConfig):
                 config=wandb_config,
                 save_code=True,
             )
-    
-    
+        
     ################# Training #######################
     best_validation_error = None
     
@@ -181,7 +178,7 @@ def main(cfg: DictConfig):
             minibatch_losses = 0.0
             for step, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
                 minibatch_loss = forward_train(batch[0].to(dist.device), batch[1].to(dist.device)) #batch[0].shape [16,2,512,256]; batch[1].shape [16,2,512,256]
-                logger.log_minibatch({"loss": minibatch_loss.detach()}) #even if we pass minibatch_loss, the log_minibatch will accumulate and divideby the number of steps at the end of the epoch.
+                logger.log_minibatch({"loss": minibatch_loss.detach()}) #even if we pass minibatch_loss, the log_minibatch will accumulate and divided by the number of steps at the end of the epoch.
                 minibatch_losses += minibatch_loss.detach().item()
             logger.log_epoch({"Learning Rate": optimizer.param_groups[0]["lr"]})
             if cfg.output.logging.wandb:
@@ -196,10 +193,6 @@ def main(cfg: DictConfig):
         if pseudo_epoch % cfg.train.validation.validation_pseudo_epochs == 0:
             with LaunchLogger("valid", epoch=pseudo_epoch) as logger: #after one epoch, he logging happens here.
                 total_loss = 0.0
-                #################  Note  #######################
-                # validation_iters = 16 (maximum)
-                # len(val_dataloader.__dict__['dataset'].__dict__['indices']) = 414, i.e. total of 414 timestep information is available for validation.
-                # 414/16 = 25.875, so the loop will run for only "16" iterations and terminate. 
                 for step, batch in zip(range(validation_iters), val_dataloader):
                 #for step, batch in zip(range(len(val_dataloader)), val_dataloader):
                     # val_loss = validator.compare(
@@ -214,7 +207,7 @@ def main(cfg: DictConfig):
                     total_loss += val_loss
                 logger.log_epoch({"Validation error": total_loss / step}) #validation error per epoch
                 
-                #save the checkpoint with the best validation error inside the folder "best"
+                #save the checkpoint with the best validation error inside the folder "best" to be used in inference.
                 if best_validation_error is None or best_validation_error > (total_loss / step):
                     best_validation_error = total_loss / step #new best validation error
                     print(f"best_validation_error so far: {best_validation_error}")

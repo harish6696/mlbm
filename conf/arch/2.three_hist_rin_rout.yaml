@@ -1,0 +1,12 @@
+decoder:
+  out_features: ${data.num_channels}
+  layers: 1
+  layer_size: 128
+
+fno:
+  in_channels: ${data.num_channels}*3
+  dimension: 2
+  latent_channels: 14   #number of channels in the latent space after lifting.
+  fno_layers: 7
+  fno_modes: 60
+  padding: 9

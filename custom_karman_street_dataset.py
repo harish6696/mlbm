@@ -65,7 +65,6 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx):
         #only load the data for the current idx from the data_paths list. (Slow but memory efficient)
         base_path, seq_start, seq_end, seq_stride = self.data_paths[idx] #basePath = '.../Re_200', seqStart = 661, seqEnd = 665, seqSkip = 2, say for idx 11
-        #seq_len = int((seq_end - seq_start) / seq_stride)
 
         loaded = {} #empty dictionary
         for field in self.field_names:
@@ -73,7 +72,7 @@ class CustomDataset(Dataset):
 
         for frame in range(seq_start, seq_end, seq_stride): #this loop executes 3 times as seqSkip = 2. 
             for field in self.field_names:
-                loaded_arr = torch.load(os.path.join(base_path, "%s_%04d.pt" % (field, frame)))
+                loaded_arr = torch.load(os.path.join(base_path, "%s_%04d.pt" % (field, frame)), weights_only=True)
                 loaded[field] += [loaded_arr.to(torch.float32)]       
 
         loaded_fields = []
@@ -121,7 +120,18 @@ class CustomDataset(Dataset):
         ######### Z-Normalization after feature engineering #########
         if self.transform:
             sample = self.transform(sample)
-        return sample
+
+        #split sample into input and target. sample for case 2 having 3 historic velocities and 1 GT velocity: sample.shape (4, 4, 1024, 256)
+        #input_tensor.shape (3, 4, 1024, 256) and gt_tensor.shape (1, 4, 1024, 256), now reshape them to (12, 1024, 256) and (4, 1024, 256) respectively to feed into the model.
+        input_tensor = sample[:-1]
+        input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+        input_tensor = input_tensor.view(input_tensor_shape)
+
+        gt_tensor = sample[-1:]
+        gt_tensor_shape = (gt_tensor.shape[0] * gt_tensor.shape[1],) + gt_tensor.shape[2:]
+        gt_tensor = gt_tensor.view(gt_tensor_shape)
+       
+        return input_tensor, gt_tensor
 
 class DataTransform(object):
 
@@ -164,7 +174,7 @@ class DataTransform(object):
             sample[0:3,3,:,:] = (sample[0:3,3,:,:] - self.mean[6]) / self.std[6] #normalizing Re
             
         else:
-            mean=self.mean.reshape((1, -1, 1, 1)) #mean_info.shape (1, 4, 1, 1) for density(1), velocity(2) and Re(1)
+            mean=self.mean.reshape((1, -1, 1, 1)) #mean.shape (1, 4, 1, 1) for density(1), velocity(2) and Re(1)
             std = self.std.reshape((1, -1, 1, 1)) 
             sample = (sample - mean) / std
 
