@@ -2,4 +2,4 @@ job:
   name: ${output.output_name}
   chdir: True
 run:
-  dir: runs/${output.output_name}/${data.field_name}_${output.timestamp}/hydra_outputs/
+  dir: runs/${output.output_name}/${data.case_name}_${data.field_names}_${data.param_names}_${output.timestamp}/hydra_outputs/

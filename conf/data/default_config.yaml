@@ -1,9 +1,14 @@
-base_folder: ./Datasets/VortexStreet_Re_200_period_1
-num_channels: 2
+base_folder: ./Dataset_KVS_200_0.2_re_100-500/train
+num_channels: 3
 normalization_mean:
 - 0.0197
 - 0.0
+- 300
 normalization_std:
 - 0.0034
 - 0.0041
-field_name: velocity
+- 81.6496581
+field_names: ['velocity']
+param_names: ['Re']
+filter_frame: [(0, -1)]
+sequence_info: [(1, 1)]

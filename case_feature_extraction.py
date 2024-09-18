@@ -31,7 +31,7 @@ from torch.utils.data import Dataset, DataLoader
 import torch
 from torch.utils.data import random_split
 from validator import GridValidator
-from custom_karman_street_dataset import CustomKarmanStreetDataset
+from custom_karman_street_dataset import CustomDataset, DataTransform
 
 from torchvision.transforms import Normalize
 
@@ -55,15 +55,15 @@ def main(cfg: DictConfig):
 
     # define model, loss, optimiser, scheduler, data loader
     model = FNO(
-        in_channels=cfg.arch.fno.in_channels,           # 2 for velocity
-        out_channels=cfg.arch.decoder.out_features,     # 2 for velocity
-        decoder_layers=cfg.arch.decoder.layers,         # 1 
-        decoder_layer_size=cfg.arch.decoder.layer_size, # 128
-        dimension=cfg.arch.fno.dimension,               # 2
-        latent_channels=cfg.arch.fno.latent_channels,   # 32
-        num_fno_layers=cfg.arch.fno.fno_layers,         # 5
-        num_fno_modes=cfg.arch.fno.fno_modes,           # 40 for velocity and 100 for density
-        padding=cfg.arch.fno.padding,                   # 9
+        in_channels=cfg.arch.fno.in_channels,           
+        out_channels=cfg.arch.decoder.out_features,     
+        decoder_layers=cfg.arch.decoder.layers,         
+        decoder_layer_size=cfg.arch.decoder.layer_size, 
+        dimension=cfg.arch.fno.dimension,              
+        latent_channels=cfg.arch.fno.latent_channels,   
+        num_fno_layers=cfg.arch.fno.fno_layers,         
+        num_fno_modes=cfg.arch.fno.fno_modes,           
+        padding=cfg.arch.fno.padding,                   
     ).to(dist.device)
 
     #activation function used is "Gelu" for encoder and "Silu" for decoder.
@@ -76,15 +76,20 @@ def main(cfg: DictConfig):
 
     #transform = Normalize(mean=cfg.data.normalization_mean, std=cfg.data.normalization_std)
 
-    case_name = 'raw_data'
-
-    dataset_train = CustomKarmanStreetDataset(base_folder=cfg.data.base_folder, 
-                                            Re_list=[200],
-                                            field_name=cfg.data.field_name, 
-                                            num_channels=cfg.data.num_channels, 
-                                            case_name=case_name)
+    dataset_train = CustomDataset(base_folder=cfg.data.base_folder,
+                                            field_names=cfg.data.field_names, 
+                                            param_names=cfg.data.param_names, 
+                                            param_values=cfg.data.param_values,
+                                            filter_frame=cfg.data.filter_frame,
+                                            sequence_info=cfg.data.sequence_info,
+                                            case_name=cfg.data.case_name)
     
-    #dataset_train.__dict__.keys() = dict_keys(['data_x', 'data_y', 'num_elements', 'transform', 'target_transform'])
+    dataset_train.transform = DataTransform(mean_info=cfg.data.normalization_mean, 
+                                            std_info=cfg.data.normalization_std,
+                                            field_names=cfg.data.field_names,
+                                            param_names=cfg.data.param_names,
+                                            case_name=cfg.data.case_name)
+
     dataset_train, dataset_val = random_split(
         dataset_train, [0.7, 0.3], generator=torch.Generator().manual_seed(42)
     ) #len(dataset_val.__dict__['indices'])

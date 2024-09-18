@@ -1,0 +1,18 @@
+base_folder: Dataset_KVS_200_0.2_re_100-500/train
+num_channels: 4
+case_name: raw_in_raw_out
+normalization_mean:
+- 1.130355    # density mean
+- 0.029989    # velocity_x mean
+- 0.0         # velocity_y mean
+- 300         # Re mean
+normalization_std:
+- 0.05823061  # density std
+- 0.01375248  # velocity_x std
+- 0.01020263  # velocity_y std
+- 81.6496581  # Re std
+field_names: ['density', 'velocity']
+param_names: ['Re']
+param_values: [[200,300,400]]
+filter_frame: [[350, 1000]]
+sequence_info: [[2, 1]] #[[num_timesteps (including the GT), sequence_stride]]
