@@ -55,8 +55,8 @@ class CustomDataset(Dataset):
                     break
                 #data_paths doesnt have density or velocity in the name, just the paths
                 self.data_paths.append((cwd, seq_start, seq_start + self.seq_length*self.seq_stride, self.seq_stride))
-
-        print("Dataset Length: %d\n" % len(self.data_paths))
+        
+        #print("Dataset Length: %d\n" % len(self.data_paths))
 
 
     def __len__(self):

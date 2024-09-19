@@ -78,6 +78,7 @@
             "console": "integratedTerminal",
             "args": [
                 "data=4.kvs_vel_den_ain_aout_re_200_400",
+                "arch=4.ain_aout",
                 //"data.field_names=['velocity', 'density']",
                 //"data.param_names=[]",
                 "output.output_name=DEBUG",
@@ -95,6 +96,7 @@
             "console": "integratedTerminal",
             "args": [
                 "data=5.kvs_vel_den_2_hist_ain_aout_re_200_400",
+                "arch=5.two_hist_ain_aout",
                 //"data.field_names=['velocity', 'density']",
                 //"data.param_names=[]",
                 "output.output_name=DEBUG",
@@ -112,6 +114,7 @@
             "console": "integratedTerminal",
             "args": [
                 "data=6.kvs_vel_den_ain_and_rin_rout_re_200_400",
+                "arch=6.ain_and_rin_rout",
                 //"data.field_names=['velocity', 'density']",
                 //"data.param_names=[]",
                 "output.output_name=DEBUG",

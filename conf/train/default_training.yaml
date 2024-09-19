@@ -1,5 +1,4 @@
 training:
-  resolution: 256
   batch_size: 16
   rec_results_freq : 32 
   max_pseudo_epochs: 128 

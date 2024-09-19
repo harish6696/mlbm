@@ -24,16 +24,13 @@ from omegaconf import DictConfig, OmegaConf
 from torch.nn import MSELoss
 from torch.optim import Adam, lr_scheduler
 import hydra
-from pathlib import Path
 
 from math import ceil
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import torch
 from torch.utils.data import random_split
 from validator import GridValidator
 from custom_karman_street_dataset import CustomDataset, DataTransform
-
-from torchvision.transforms import Normalize
 
 import os
 import shutil
@@ -74,7 +71,23 @@ def main(cfg: DictConfig):
         optimizer, lr_lambda=lambda step: cfg.scheduler.decay_rate**step
     )
 
-    #transform = Normalize(mean=cfg.data.normalization_mean, std=cfg.data.normalization_std)
+    log.log("############################################################################################################")
+    log.log("Case Details:")
+    log.log("case_name: " +str(cfg.data.case_name))
+
+    log.log("------------------------------------------------------------------------------------------------------------")
+    log.log("Model Details:")
+    log.log("number of model parameters: "+str(sum(p.numel() for p in model.parameters())))
+    log.log("in_channels: "+str(eval(str(cfg.arch.fno.in_channels))))
+    log.log("out_features: "+str(eval(str(cfg.arch.decoder.out_features))))
+    log.log("decoder_layers: "+str(cfg.arch.decoder.layers)) #decoder is for projection(downsampling) and encoder is for lifting(upsampling).
+    log.log("decoder_layer_size: "+str(cfg.arch.decoder.layer_size)) #decoder_layer_size is the number of neurons in each layer of the decoder.
+    log.log("dimension: "+str(cfg.arch.fno.dimension)) #for 2D-FNO the dimension of the tensor passed to the FNOmodel should be 4. (batch_size, channels, x_res, y_res)
+    log.log("latent_channels (after lifting): "+str(cfg.arch.fno.latent_channels))
+    log.log("num_fno_layers: "+str(cfg.arch.fno.fno_layers))
+    log.log("num_fno_modes: "+str(cfg.arch.fno.fno_modes))
+    log.log("padding: "+str(cfg.arch.fno.padding))
+    #log.log("------------------------------------------------------------------------------------------------------------")
 
     dataset_train = CustomDataset(base_folder=cfg.data.base_folder,
                                             field_names=cfg.data.field_names, 
@@ -93,6 +106,19 @@ def main(cfg: DictConfig):
     dataset_train, dataset_val = random_split(
         dataset_train, [0.7, 0.3], generator=torch.Generator().manual_seed(42)
     ) 
+    log.log("------------------------------------------------------------------------------------------------------------")
+    log.log("Train Dataset Details:")
+    log.log("base_folder: "+str(cfg.data.base_folder))
+    log.log("field_names: "+str(cfg.data.field_names))
+    log.log("param_names: "+str(cfg.data.param_names))
+    log.log("param_values: "+str(cfg.data.param_values))
+    log.log("filter_frame (min and max frames used from the simulation): "+str(cfg.data.filter_frame))
+    log.log("sequence_info (i/p+gt, sequnce_stride): "+str(cfg.data.sequence_info))
+    log.log("mean_info: "+str(cfg.data.normalization_mean))
+    log.log("std_info: "+str(cfg.data.normalization_std))
+    log.log("No. of training batches (=len(train_loader)): "+str(ceil(len(dataset_train)/cfg.train.training.batch_size)))
+    log.log("No. of validation batches (=len(val_loader)): "+str(ceil(len(dataset_val)/cfg.train.training.batch_size)))
+    #log.log("------------------------------------------------------------------------------------------------------------")
     
     train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True)
     val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True)
@@ -104,9 +130,8 @@ def main(cfg: DictConfig):
         "models": model,
     }
     validator = GridValidator(out_dir=ckpt_args["path"] + "/validators", loss_fun=MSELoss(), num_channels=cfg.data.num_channels)
-    loaded_pseudo_epoch = load_checkpoint(device=dist.device, **ckpt_args)
-
-    # calculate steps per pseudo epoch
+    
+    # calculate the no. of times the training loop is executed for each pseudo epoch.
     steps_per_pseudo_epoch = ceil(cfg.train.training.pseudo_epoch_sample_size / cfg.train.training.batch_size)
     #steps_per_pseudo_epoch = 2048/16 = 128. 128 times the training loop is executed for each pseudo epoch.
 
@@ -117,6 +142,20 @@ def main(cfg: DictConfig):
         "num_mini_batch": steps_per_pseudo_epoch,
         "epoch_alert_freq": 1,
     }
+
+    log.log("------------------------------------------------------------------------------------------------------------")
+    log.log("Training Details:")
+    log.log("Batch size: "+str(cfg.train.training.batch_size))
+    log.log("Number of epochs: "+str(cfg.train.training.max_pseudo_epochs))
+    log.log("Number of times the training loop is executed for each epoch: "+str(steps_per_pseudo_epoch))
+    log.log("Actual number of times training loop is executed for each epoch: "+str(min(steps_per_pseudo_epoch,len(train_dataloader))))
+    log.log("Number of times the validation loop is executed for each epoch: "+str(validation_iters))
+    log.log("Actual number of times validation loop is executed for each epoch: "+str(min(validation_iters,len(val_dataloader))))
+    log.log("Checkpoint save frequency (After these many epochs): "+str(cfg.train.training.rec_results_freq))
+    log.log("Initial learning rate: "+str(cfg.scheduler.initial_lr))
+    log.log("Decay rate: "+str(cfg.scheduler.decay_rate))
+    log.log("Decay frequency (After these many epochs): "+str(cfg.scheduler.decay_pseudo_epochs))
+    log.log("############################################################################################################")
 
     if cfg.train.training.pseudo_epoch_sample_size % cfg.train.training.batch_size != 0:
         log.warning(
@@ -135,7 +174,7 @@ def main(cfg: DictConfig):
     )
     def forward_train(invars, target): #invars.shape= [16,2,512,256]; target.shape= [16,2,512,256].
         pred = model(invars)
-        loss = loss_fun(pred, target) #loss function is L1Loss (which is a scalar)
+        loss = loss_fun(pred, target) #MSE_loss(pred, target)
         return loss
 
     @StaticCaptureEvaluateNoGrad(
@@ -143,22 +182,24 @@ def main(cfg: DictConfig):
     )
     def forward_eval(invars):
         return model(invars)
-
+    
+    ##restart training from the last saved checkpoint
+    loaded_pseudo_epoch = load_checkpoint(device=dist.device, **ckpt_args)
     if loaded_pseudo_epoch == 0:
         log.success("Training started...")
     else:
         log.warning(f"Resuming training from pseudo epoch {loaded_pseudo_epoch+1}.")
 
-    #hardcoded (find a better way to do this)
-    cfg.arch.decoder.out_features = cfg.data.num_channels
-    cfg.arch.fno.in_channels = cfg.data.num_channels
+    #modified below for logging in wandb
+    cfg.arch.decoder.out_features = eval(str(cfg.arch.decoder.out_features))
+    cfg.arch.fno.in_channels = eval(str(cfg.arch.fno.in_channels))
 
     if cfg.output.logging.wandb:
         wandb_config = OmegaConf.to_container(cfg)
         wandb_config["num_model_params"] = sum(p.numel() for p in model.parameters())
         wandb_config["loaded_epoch"] = loaded_pseudo_epoch
         
-        run_name = f"{cfg.output.output_name}_{cfg.data.field_name}_{formatted_datetime}"
+        run_name = f"{cfg.output.output_name}_{cfg.data.case_name}_{cfg.data.field_names}_{cfg.data.param_names}_{formatted_datetime}"
         wandb_run = wandb.init(
                 project=cfg.output.logging.wandb_project,
                 entity=cfg.output.logging.wandb_entity,
@@ -195,12 +236,12 @@ def main(cfg: DictConfig):
                 total_loss = 0.0
                 for step, batch in zip(range(validation_iters), val_dataloader):
                 #for step, batch in zip(range(len(val_dataloader)), val_dataloader):
-                    # val_loss = validator.compare(
-                    #     invar=batch[0].to(dist.device),
-                    #     target=batch[1].to(dist.device),
-                    #     prediction=forward_eval(batch[0].to(dist.device)),
-                    #     step=pseudo_epoch,
-                    # )
+                    val_loss = validator.compare(
+                        invar=batch[0].to(dist.device),
+                        target=batch[1].to(dist.device),
+                        prediction=forward_eval(batch[0].to(dist.device)),
+                        step=pseudo_epoch,
+                    )
                     # batch[0].shape = [16,2,512,256]; batch[1].shape = [16,2,512,256]
                     val_loss = validator.compute_only_loss(target=batch[1].to(dist.device)
                                                           ,prediction=forward_eval(batch[0].to(dist.device)))
@@ -210,7 +251,7 @@ def main(cfg: DictConfig):
                 #save the checkpoint with the best validation error inside the folder "best" to be used in inference.
                 if best_validation_error is None or best_validation_error > (total_loss / step):
                     best_validation_error = total_loss / step #new best validation error
-                    print(f"best_validation_error so far: {best_validation_error}")
+                    log.success(f"best_validation_error so far: {best_validation_error}")
                     best_ckpt_args = {
                             "path": os.path.join(os.path.dirname(os.getcwd()),"best"),
                             "optimizer": optimizer,
@@ -237,12 +278,14 @@ def main(cfg: DictConfig):
     if cfg.output.logging.wandb:
         wandb.finish()
 
+
+    """
     ################# Inference #######################
     path = os.path.join(os.path.dirname(os.getcwd()),"best")
     model_inf = Module.from_checkpoint(path).to(dist.device)
     model_inf.eval()
 
-    """
+    
     with torch.inference_mode():
                 #loading the data
                 data_x = data_x_total[0]
@@ -254,15 +297,6 @@ def main(cfg: DictConfig):
                     output = model_inf(input)
                     input = output.detach().clone()
     """
-
-
-    with torch.inference_mode():
-        pass
-            
-            
-
-
-
 
 
 if __name__ == "__main__":
