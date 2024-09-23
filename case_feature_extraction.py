@@ -50,6 +50,16 @@ def main(cfg: DictConfig):
 
     LaunchLogger.initialize()  
 
+    ##hardcoded for now (assuming only Re is the parameter)
+    if cfg.data.param_names == []:
+        cfg.data.num_channels = cfg.data.num_channels - 1
+        #cfg.arch.fno.in_channels = eval(str(cfg.arch.fno.in_channels)) 
+        #cfg.arch.decoder.out_features = eval(str(cfg.arch.decoder.out_features)) 
+
+    #Re is not predicted (hardcoded)
+    else:
+        cfg.arch.decoder.out_features = eval(str(cfg.arch.decoder.out_features))-1 
+
     # define model, loss, optimiser, scheduler, data loader
     model = FNO(
         in_channels=eval(str(cfg.arch.fno.in_channels)),           
@@ -62,8 +72,6 @@ def main(cfg: DictConfig):
         num_fno_modes=cfg.arch.fno.fno_modes,           
         padding=cfg.arch.fno.padding,                   
     ).to(dist.device)
-
-    #activation function used is "Gelu" for encoder and "Silu" for decoder.
 
     loss_fun = MSELoss()
     optimizer = Adam(model.parameters(), lr=cfg.scheduler.initial_lr)
@@ -87,7 +95,6 @@ def main(cfg: DictConfig):
     log.log("num_fno_layers: "+str(cfg.arch.fno.fno_layers))
     log.log("num_fno_modes: "+str(cfg.arch.fno.fno_modes))
     log.log("padding: "+str(cfg.arch.fno.padding))
-    #log.log("------------------------------------------------------------------------------------------------------------")
 
     dataset_train = CustomDataset(base_folder=cfg.data.base_folder,
                                             field_names=cfg.data.field_names, 
@@ -118,7 +125,6 @@ def main(cfg: DictConfig):
     log.log("std_info: "+str(cfg.data.normalization_std))
     log.log("No. of training batches (=len(train_loader)): "+str(ceil(len(dataset_train)/cfg.train.training.batch_size)))
     log.log("No. of validation batches (=len(val_loader)): "+str(ceil(len(dataset_val)/cfg.train.training.batch_size)))
-    #log.log("------------------------------------------------------------------------------------------------------------")
     
     train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True)
     val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True)
@@ -129,7 +135,7 @@ def main(cfg: DictConfig):
         "scheduler": scheduler,
         "models": model,
     }
-    validator = GridValidator(out_dir=ckpt_args["path"] + "/validators", loss_fun=MSELoss(), num_channels=cfg.data.num_channels)
+    validator = GridValidator(out_dir=ckpt_args["path"] + "/validators", loss_fun=MSELoss(), num_channels=cfg.arch.decoder.out_features)
     
     # calculate the no. of times the training loop is executed for each pseudo epoch.
     steps_per_pseudo_epoch = ceil(cfg.train.training.pseudo_epoch_sample_size / cfg.train.training.batch_size)

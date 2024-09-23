@@ -53,7 +53,7 @@ class GridValidator:
     ):
         self.norm = norm
         self.criterion = loss_fun #MSE_Loss (L2)
-        self.num_channels = num_channels #2 for velocity
+        self.num_channels = num_channels 
         self.font_size = font_size
         self.headers = ("invar", "truth", "prediction", "relative error", "difference target invar")
         self.out_dir = os.path.abspath(os.path.join(os.getcwd(), out_dir))

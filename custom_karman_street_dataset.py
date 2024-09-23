@@ -58,7 +58,6 @@ class CustomDataset(Dataset):
         
         #print("Dataset Length: %d\n" % len(self.data_paths))
 
-
     def __len__(self):
         return len(self.data_paths)
 
@@ -131,6 +130,10 @@ class CustomDataset(Dataset):
         gt_tensor_shape = (gt_tensor.shape[0] * gt_tensor.shape[1],) + gt_tensor.shape[2:]
         gt_tensor = gt_tensor.view(gt_tensor_shape)
        
+        #Remove the parameter tensor from the GT tensor if the param_names is not empty
+        if self.param_names!=[]:
+            gt_tensor = gt_tensor[:-1]
+
         return input_tensor, gt_tensor
 
 class DataTransform(object):
@@ -141,7 +144,7 @@ class DataTransform(object):
         self.field_names = field_names
         self.param_names = param_names
         self.case_name = case_name
-
+        #TODO : Make the mean and std as a dictionary with field names as keys and mean and std as values
     def __call__(self, sample):
         """
         # normalization to std. normal distr. with zero mean and unit std via statistics from whole dataset
@@ -164,19 +167,34 @@ class DataTransform(object):
 
         #mean_info =self.mean[all_filter].reshape((1, -1, 1, 1)) #mean_info.shape (1, 4, 1, 1) for velocity (2), density(1), Re(1)
         """
-        if self.case_name=="acc_and_raw_in_raw_out":
+        if self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['density','velocity']:
             sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]     #normalizing the density derivative
             sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]     #normalizing the x-velocity derivative (acc_x)
             sample[0,2,:,:] = (sample[0,2,:,:] - self.mean[2]) / self.std[2]     #normalizing the y-velocity derivative (acc_y)
             sample[1:3,0,:,:] = (sample[1:3,0,:,:] - self.mean[3]) / self.std[3] #normalizing density
             sample[1:3,1,:,:] = (sample[1:3,1,:,:] - self.mean[4]) / self.std[4] #normalizing x-velocity
             sample[1:3,2,:,:] = (sample[1:3,2,:,:] - self.mean[5]) / self.std[5] #normalizing y-velocity
-            sample[0:3,3,:,:] = (sample[0:3,3,:,:] - self.mean[6]) / self.std[6] #normalizing Re
-            
+            if self.param_names!=[]:
+                sample[0:3,3,:,:] = (sample[0:3,3,:,:] - self.mean[6]) / self.std[6] #normalizing Re
+        
+        elif self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['velocity']:
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]    #normalizing the x-velocity derivative (acc_x)
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]   #normalizing the y-velocity derivative (acc_y)
+            sample[1:3,0,:,:] = (sample[1:3,0,:,:] - self.mean[2]) / self.std[2] #normalizing x-velocity (1:3 means 1 and 2 included--> normalizing x-vel of input and gt)
+            sample[1:3,1,:,:] = (sample[1:3,1,:,:] - self.mean[3]) / self.std[3] #normalizing y-velocity
+            if self.param_names!=[]:
+                sample[0:3,2,:,:] = (sample[0:3,2,:,:] - self.mean[4]) / self.std[4]
+
         else:
-            mean=self.mean.reshape((1, -1, 1, 1)) #mean.shape (1, 4, 1, 1) for density(1), velocity(2) and Re(1)
-            std = self.std.reshape((1, -1, 1, 1)) 
-            sample = (sample - mean) / std
+            #if self.param_names is empty then (to be fixed if number of parameters are more than 1)
+            if self.param_names==[]:
+                mean=self.mean.reshape((1, -1, 1, 1))
+                std = self.std.reshape((1, -1, 1, 1))
+                sample = (sample - mean[:,:-1,:,:]) / std[:,:-1,:,:]
+            else:
+                mean=self.mean.reshape((1, -1, 1, 1)) #mean.shape (1, 4, 1, 1) for density(1), velocity(2) and Re(1)
+                std = self.std.reshape((1, -1, 1, 1)) 
+                sample = (sample - mean) / std
 
         return sample
     

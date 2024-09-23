@@ -1,0 +1,16 @@
+base_folder: Dataset_KVS_200_0.2_re_100-500/train
+num_channels: 3
+case_name: acc_in_acc_out
+normalization_mean:
+- 1.0259549e-05     # acc_x
+- -4.2665965e-07    # acc_y
+- 300               # Re
+normalization_std:
+- 0.00763329
+- 0.01128776
+- 81.6496581
+field_names: ['velocity']
+param_names: ['Re']
+param_values: [[200,300,400]]
+filter_frame: [[350, 1000]]
+sequence_info: [[3, 1]] #[[num_timesteps (including the GT), sequence_stride]]
