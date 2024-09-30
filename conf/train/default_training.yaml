@@ -7,3 +7,6 @@ training:
 validation:
   sample_size: 256
   validation_pseudo_epochs: 8
+
+inference:
+  batch_size: 16

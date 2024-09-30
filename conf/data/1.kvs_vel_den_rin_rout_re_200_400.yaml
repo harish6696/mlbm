@@ -13,6 +13,6 @@ normalization_std:
 - 81.6496581  # Re std
 field_names: ['density', 'velocity']
 param_names: ['Re']
-param_values: [[200,300,400]]
 filter_frame: [[350, 1000]]
 sequence_info: [[2, 1]] #[[num_timesteps (including the GT), sequence_stride]]
+n_rollout_steps: 1

@@ -99,10 +99,10 @@ def main(cfg: DictConfig):
     dataset_train = CustomDataset(base_folder=cfg.data.base_folder,
                                             field_names=cfg.data.field_names, 
                                             param_names=cfg.data.param_names, 
-                                            param_values=cfg.data.param_values,
                                             filter_frame=cfg.data.filter_frame,
                                             sequence_info=cfg.data.sequence_info,
-                                            case_name=cfg.data.case_name)
+                                            case_name=cfg.data.case_name,
+                                            n_rollout_steps=cfg.data.n_rollout_steps)
     
     dataset_train.transform = DataTransform(mean_info=cfg.data.normalization_mean, 
                                             std_info=cfg.data.normalization_std,

@@ -11,22 +11,22 @@ class CustomDataset(Dataset):
     def __init__(self, base_folder: str, 
                  field_names: List[str], 
                  param_names: List[str], 
-                 param_values: List,
                  case_name: str,
                  filter_frame:List[Tuple[int,int]]=[], 
-                 sequence_info: List[Tuple[int,int]]=[]):
+                 sequence_info: List[Tuple[int,int]]=[],
+                 mode:str='train',
+                 n_rollout_steps: int=1): #while training n_rollout_steps=1
         
         self.case_name = case_name
         self.transform = None
         self.data_dir = base_folder 
         self.field_names = field_names  #velocity, density or both
         self.param_names = param_names  #Re, Ma or both
-        self.param_values = param_values 
         self.min_frame = filter_frame[0][0]
         self.max_frame = filter_frame[0][1]
         self.seq_length= sequence_info[0][0] # includes n-1 historic info and 1 current info (GT)
         self.seq_stride = sequence_info[0][1] # stride between sequences
-
+        self.mode = mode
         self.data_paths = []
         ######################################
         ### Stage 1 : Generate data paths list
@@ -34,6 +34,11 @@ class CustomDataset(Dataset):
         top_dir= os.path.join(get_original_cwd(), self.data_dir)
         top_dir_folders= os.listdir(os.path.join(get_original_cwd(), self.data_dir))
         top_dir_folders.sort()
+
+        if self.mode == 'infer':
+            self.original_seq_length = self.seq_length
+        
+        self.seq_length = self.seq_length + n_rollout_steps -1 #-1 is to remove the GT (as there is no GT in inference mode)
 
         for dir in top_dir_folders: #top_dir_folders has Re_200, Re_300 and Re_400.
             cwd=os.path.join(top_dir, dir) #need this because hydra changes the cwd
@@ -55,14 +60,15 @@ class CustomDataset(Dataset):
                     break
                 #data_paths doesnt have density or velocity in the name, just the paths
                 self.data_paths.append((cwd, seq_start, seq_start + self.seq_length*self.seq_stride, self.seq_stride))
-        
-        #print("Dataset Length: %d\n" % len(self.data_paths))
+
+        print("Dataset Length: %d\n" % len(self.data_paths))
 
     def __len__(self):
         return len(self.data_paths)
 
     def __getitem__(self, idx):
         #only load the data for the current idx from the data_paths list. (Slow but memory efficient)
+        #print(self.data_paths[idx])
         base_path, seq_start, seq_end, seq_stride = self.data_paths[idx] #basePath = '.../Re_200', seqStart = 661, seqEnd = 665, seqSkip = 2, say for idx 11
 
         loaded = {} #empty dictionary
@@ -82,12 +88,13 @@ class CustomDataset(Dataset):
         ###########################################################################
         ### Stage 2 : Feature Engineering (Modifiy the data before normalizing it)
         ###########################################################################
+            
         if self.case_name=="raw_in_raw_out": #contains 2 (1+1 GT) timesteps of velocity or density or both. u^n --> u^{n+1}
             pass #nothing to be modified, just normalize the data in the next step
 
         elif self.case_name=="3_hist_raw_in_raw_out":  #contains 4 (3+1 GT) timesteps of velocity or density or both. u^{n-2}, u^{n-1}, u^n --> u^{n+1}
             pass #nothing to be modified, just normalize the data in the next step
-   
+
         elif self.case_name=="raw_and_grad_rho_in_raw_out": #contains 2 (1+1 GT) timesteps of velocity or density or both. u^n, grad_rho^n --> u^{n+1}
             raise NotImplementedError()
 
@@ -102,10 +109,10 @@ class CustomDataset(Dataset):
                 # loaded_fields[0].shape (4-->3,1, 1024, 256) and loaded_fields[1].shape (4-->3, 2, 1024, 256).--> final_shape after concatenation= (3, 3, 1024, 256)
                 # here both input is two acceleraton and output is also accelerations hence dim_0=3
         
-        elif self.case_name=="acc_and_raw_in_raw_out": #contains 3 (2+1 GT) timesteps. delta_u^n (=u^n-u^{n-1}), u^n --> u^{n+1}
+        elif self.case_name=="acc_and_raw_in_raw_out": #contains 3 (2+1 GT) timesteps. delta_u^n (=u^n-u^{n-1}), u^n --> u^{n+1}    
             for i in range(len(self.field_names)): #selecting i-th entry of the loaded_fields list which is a field array like denstiy, velocity etc.
-                loaded_fields[i][0] = loaded_fields[i][1] - loaded_fields[i][0] #other entries of the loaded_fields[i] array are already in the form of delta_u^n 
-
+                loaded_fields[i][0] = loaded_fields[i][1] - loaded_fields[i][0] #other entries of the loaded_fields[i] array are already in the form of u^n 
+                
         #Condition it with the simulation parameter
         if 'Re' in self.param_names:
             Re = int(base_path.split('_')[-1]) #Extract the Re value from the path
@@ -120,19 +127,50 @@ class CustomDataset(Dataset):
         if self.transform:
             sample = self.transform(sample)
 
-        #split sample into input and target. sample for case 2 having 3 historic velocities and 1 GT velocity: sample.shape (4, 4, 1024, 256)
-        #input_tensor.shape (3, 4, 1024, 256) and gt_tensor.shape (1, 4, 1024, 256), now reshape them to (12, 1024, 256) and (4, 1024, 256) respectively to feed into the model.
-        input_tensor = sample[:-1]
-        input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
-        input_tensor = input_tensor.view(input_tensor_shape)
+        if self.mode == 'train': #one step prediction
+            #split sample into input and target. sample for case 2 having 3 historic velocities and 1 GT velocity: sample.shape (4, 4, 1024, 256)
+            #input_tensor.shape (3, 4, 1024, 256) and gt_tensor.shape (1, 4, 1024, 256), now reshape them to (12, 1024, 256) and (4, 1024, 256) respectively to feed into the model.
+            input_tensor = sample[:-1]
+            input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+            input_tensor = input_tensor.view(input_tensor_shape)
 
-        gt_tensor = sample[-1:]
-        gt_tensor_shape = (gt_tensor.shape[0] * gt_tensor.shape[1],) + gt_tensor.shape[2:]
-        gt_tensor = gt_tensor.view(gt_tensor_shape)
+            gt_tensor = sample[-1:]
+            gt_tensor_shape = (gt_tensor.shape[0] * gt_tensor.shape[1],) + gt_tensor.shape[2:]
+            gt_tensor = gt_tensor.view(gt_tensor_shape)
        
-        #Remove the parameter tensor from the GT tensor if the param_names is not empty
-        if self.param_names!=[]:
-            gt_tensor = gt_tensor[:-1]
+            #Remove the parameter tensor from the GT tensor if the param_names is not empty
+            if self.param_names!=[]:
+                gt_tensor = gt_tensor[:-1]
+
+        else: #for inference
+            if (self.case_name=="raw_in_raw_out" or self.case_name=="3_hist_raw_in_raw_out"):
+                input_tensor = sample[0:self.original_seq_length-1]
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+
+                gt_tensor = sample[self.original_seq_length-1:]
+
+            elif (self.case_name=="acc_in_acc_out" or self.case_name=="2_hist_acc_in_acc_out"):
+                #sample itself has the difference of the fields
+                input_tensor = sample[0:self.original_seq_length-2]
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+
+                gt_tensor = sample[self.original_seq_length-2:]
+
+            elif self.case_name=="acc_and_raw_in_raw_out":
+                input_tensor = sample[0:self.original_seq_length-1] #sample[0] has the difference_info and sample[1] has the raw data
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+
+                gt_tensor = sample[self.original_seq_length-1:] #only has raw data u^{n+1}
+
+            else:
+                raise ValueError("Case name not recognized")
+
+            #Remove the parameter tensor from the GT tensor if the param_names is not empty
+            if self.param_names!=[]:
+                gt_tensor = gt_tensor[:,:-1,:,:]
 
         return input_tensor, gt_tensor
 
@@ -171,19 +209,19 @@ class DataTransform(object):
             sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]     #normalizing the density derivative
             sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]     #normalizing the x-velocity derivative (acc_x)
             sample[0,2,:,:] = (sample[0,2,:,:] - self.mean[2]) / self.std[2]     #normalizing the y-velocity derivative (acc_y)
-            sample[1:3,0,:,:] = (sample[1:3,0,:,:] - self.mean[3]) / self.std[3] #normalizing density
-            sample[1:3,1,:,:] = (sample[1:3,1,:,:] - self.mean[4]) / self.std[4] #normalizing x-velocity
-            sample[1:3,2,:,:] = (sample[1:3,2,:,:] - self.mean[5]) / self.std[5] #normalizing y-velocity
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean[3]) / self.std[3] #normalizing density
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean[4]) / self.std[4] #normalizing x-velocity
+            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean[5]) / self.std[5] #normalizing y-velocity
             if self.param_names!=[]:
-                sample[0:3,3,:,:] = (sample[0:3,3,:,:] - self.mean[6]) / self.std[6] #normalizing Re
+                sample[0:,3,:,:] = (sample[0:,3,:,:] - self.mean[6]) / self.std[6] #normalizing Re
         
         elif self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['velocity']:
             sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]    #normalizing the x-velocity derivative (acc_x)
             sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]   #normalizing the y-velocity derivative (acc_y)
-            sample[1:3,0,:,:] = (sample[1:3,0,:,:] - self.mean[2]) / self.std[2] #normalizing x-velocity (1:3 means 1 and 2 included--> normalizing x-vel of input and gt)
-            sample[1:3,1,:,:] = (sample[1:3,1,:,:] - self.mean[3]) / self.std[3] #normalizing y-velocity
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean[2]) / self.std[2] #normalizing x-velocity (1:3 means 1 and 2 included--> normalizing x-vel of input and gt)
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean[3]) / self.std[3] #normalizing y-velocity
             if self.param_names!=[]:
-                sample[0:3,2,:,:] = (sample[0:3,2,:,:] - self.mean[4]) / self.std[4]
+                sample[0:,2,:,:] = (sample[0:,2,:,:] - self.mean[4]) / self.std[4]
 
         else:
             #if self.param_names is empty then (to be fixed if number of parameters are more than 1)
