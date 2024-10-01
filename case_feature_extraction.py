@@ -106,8 +106,6 @@ def main(cfg: DictConfig):
     
     dataset_train.transform = DataTransform(mean_info=cfg.data.normalization_mean, 
                                             std_info=cfg.data.normalization_std,
-                                            new_mean = cfg.data.norm_mean,
-                                            new_std = cfg.data.norm_std,
                                             field_names=cfg.data.field_names,
                                             param_names=cfg.data.param_names,
                                             case_name=cfg.data.case_name)

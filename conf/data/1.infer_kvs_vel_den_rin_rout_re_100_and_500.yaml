@@ -3,16 +3,8 @@ mode: infer
 model_path: runs/FNOKarman_noRepred/20240921-115504_raw_in_raw_out_['density', 'velocity']_['Re']
 num_channels: 4
 case_name: raw_in_raw_out
-normalization_mean:
-- 1.130355    # density mean
-- 0.029989    # velocity_x mean
-- 0.0         # velocity_y mean
-- 300         # Re mean
-normalization_std:
-- 0.05823061  # density std
-- 0.01375248  # velocity_x std
-- 0.01020263  # velocity_y std
-- 81.6496581  # Re std
+normalization_mean: {rho: 1.130355, u: 0.029989, v: 0.0, Re: 300}
+normalization_std: {rho: 0.05823061, u: 0.01375248, v: 0.01020263, Re: 81.6496581}
 field_names: ['density', 'velocity']
 param_names: ['Re']
 filter_frame: [[350, 1000]]

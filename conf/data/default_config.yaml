@@ -1,13 +1,14 @@
+#########to be updated#########
 base_folder: ./Dataset_KVS_200_0.2_re_100-500/train
 num_channels: 3
-normalization_mean:
-- 0.0197
-- 0.0
-- 300
-normalization_std:
-- 0.0034
-- 0.0041
-- 81.6496581
+# normalization_mean:
+# - 0.0197
+# - 0.0
+# - 300
+# normalization_std:
+# - 0.0034
+# - 0.0041
+# - 81.6496581
 field_names: ['velocity']
 param_names: ['Re']
 filter_frame: [(0, -1)]

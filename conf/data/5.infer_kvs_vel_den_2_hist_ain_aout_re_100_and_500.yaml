@@ -3,16 +3,8 @@ mode: infer
 model_path: runs/FNOKarman_noRepred/20240921-123818_2_hist_acc_in_acc_out_['density', 'velocity']_['Re']
 num_channels: 4
 case_name: 2_hist_acc_in_acc_out
-normalization_mean:
-- 1.2319098e-04     # density_acc(time-derivative)
-- 1.0259549e-05     # acc_x
-- -4.2665965e-07    # acc_y
-- 300               # Re
-normalization_std:
-- 0.00524045 
-- 0.00763329
-- 0.01128776
-- 81.6496581
+normalization_mean: {drho_dt: 1.2319098e-04, du_dt: 1.0259549e-05 , dv_dt: -4.2665965e-07 ,Re: 300}
+normalization_std: {drho_dt: 0.00524045, du_dt: 0.00763329, dv_dt: 0.01128776 ,Re: 81.6496581}
 field_names: ['density', 'velocity']
 param_names: ['Re']
 filter_frame: [[350, 1000]]

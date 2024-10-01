@@ -58,7 +58,7 @@ def main(cfg: DictConfig):
                                             n_rollout_steps=cfg.data.n_rollout_steps,
                                             mode=cfg.data.mode)
     
-    dataset_infer.transform = DataTransform(mean_info=cfg.data.normalization_mean, 
+    dataset_infer.transform = DataTransform(mean_info=cfg.data.normalization_mean,
                                             std_info=cfg.data.normalization_std,
                                             field_names=cfg.data.field_names,
                                             param_names=cfg.data.param_names,

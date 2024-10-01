@@ -176,14 +176,13 @@ class CustomDataset(Dataset):
 
 class DataTransform(object):
 
-    def __init__(self, mean_info: List, std_info:List, new_mean:Dict, new_std:Dict, field_names:str, param_names:str, case_name:str):
-        self.mean = torch.tensor(mean_info)
-        self.std = torch.tensor(std_info)
+    def __init__(self, mean_info:Dict, std_info:Dict, field_names:str, param_names:str, case_name:str):
+        self.mean = mean_info
+        self.std = std_info
         self.field_names = field_names
         self.param_names = param_names
         self.case_name = case_name
-        self.new_mean = new_mean
-        self.new_std = new_std
+
         #TODO : Make the mean and std as a dictionary with field names as keys and mean and std as values
     def __call__(self, sample):
         """
@@ -206,16 +205,16 @@ class DataTransform(object):
         #write an assert to check of all the data is normalized i.e. all values of sample are between -1 and 1
 
         #mean_info =self.mean[all_filter].reshape((1, -1, 1, 1)) #mean_info.shape (1, 4, 1, 1) for velocity (2), density(1), Re(1)
-        """
+        
         sample_copy = sample.clone()
         
         if self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['density','velocity']:
             sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]     #normalizing the density derivative
             sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]     #normalizing the x-velocity derivative (acc_x)
             sample[0,2,:,:] = (sample[0,2,:,:] - self.mean[2]) / self.std[2]     #normalizing the y-velocity derivative (acc_y)
-            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean[3]) / self.std[3] #normalizing density
-            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean[4]) / self.std[4] #normalizing x-velocity
-            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean[5]) / self.std[5] #normalizing y-velocity
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean[3]) / self.std[3]   #normalizing density
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean[4]) / self.std[4]   #normalizing x-velocity
+            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean[5]) / self.std[5]   #normalizing y-velocity
             if self.param_names!=[]:
                 sample[0:,3,:,:] = (sample[0:,3,:,:] - self.mean[6]) / self.std[6] #normalizing Re
         
@@ -237,6 +236,63 @@ class DataTransform(object):
                 mean=self.mean.reshape((1, -1, 1, 1)) #mean.shape (1, 4, 1, 1) for density(1), velocity(2) and Re(1)
                 std = self.std.reshape((1, -1, 1, 1)) 
                 sample = (sample - mean) / std
+        """
+        ##################################################################################################################################################
+        #### Case 1 and Case 2 both only have raw data in the input and output
+        if self.case_name=="raw_in_raw_out" or self.case_name=="3_hist_raw_in_raw_out" and self.field_names==['density','velocity']:
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['rho']) / self.std['rho']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['u']) / self.std['u']
+            sample[:,2,:,:] = (sample[:,2,:,:] - self.mean['v']) / self.std['v']
+            if self.param_names!=[]:
+                sample[:,3,:,:] = (sample[:,3,:,:] - self.mean['Re']) / self.std['Re']
 
+        elif self.case_name=="raw_in_raw_out" or self.case_name=="3_hist_raw_in_raw_out" and self.field_names==['velocity']:
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['u']) / self.std['u']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['v']) / self.std['v']
+            if self.param_names!=[]:
+                sample[:,2,:,:] = (sample[:,2,:,:] - self.mean['Re']) / self.std['Re']
+
+        #### Case 3 has both raw data and gradient of density in the input and only raw data in the output
+        elif self.case_name=="raw_and_grad_rho_in_raw_out" and self.field_names==['density','velocity']:
+            #not implemented yet
+            raise NotImplementedError()
+
+        elif self.case_name=="raw_and_grad_rho_in_raw_out" and self.field_names==['velocity']:
+            #not implemented yet
+            raise NotImplementedError()
+
+        #### Case 4 and Case 5 both have acceleration in the input and output
+        elif self.case_name=="acc_in_acc_out" or self.case_name=="2_hist_acc_in_acc_out" and self.field_names==['density','velocity']:
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['drho_dt']) / self.std['drho_dt']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[:,2,:,:] = (sample[:,2,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+            if self.param_names!=[]:
+                sample[:,3,:,:] = (sample[:,3,:,:] - self.mean['Re']) / self.std['Re']
+
+        elif self.case_name=="acc_in_acc_out" or self.case_name=="2_hist_acc_in_acc_out" and self.field_names==['velocity']:
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+            if self.param_names!=[]:
+                sample[:,2,:,:] = (sample[:,2,:,:] - self.mean['Re']) / self.std['Re']
+        
+        #### Case 6 has both acceleration and raw data in the input and only raw data in the output
+        elif self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['density','velocity']:
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean['drho_dt']) / self.std['drho_dt'] #idx 0 is the acceleration of density and velocity.
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[0,2,:,:] = (sample[0,2,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean['rho']) / self.std['rho'] #idx 1 onwards it is raw data
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean['u']) / self.std['u']
+            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean['v']) / self.std['v']
+            if self.param_names!=[]:
+                sample[0:,3,:,:] = (sample[0:,3,:,:] - self.mean['Re']) / self.std['Re']
+
+        elif self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['velocity']:
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean['u']) / self.std['u']
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean['v']) / self.std['v']
+            if self.param_names!=[]:
+                sample[0:,2,:,:] = (sample[0:,2,:,:] - self.mean['Re']) / self.std['Re']
+        
         return sample
     
