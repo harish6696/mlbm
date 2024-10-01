@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 import os
 from hydra.utils import get_original_cwd
 ##Datasets have arrived from the folder "final_dataset_for_train". Now build the CustomDataset
@@ -96,7 +96,7 @@ class CustomDataset(Dataset):
             pass #nothing to be modified, just normalize the data in the next step
 
         elif self.case_name=="raw_and_grad_rho_in_raw_out": #contains 2 (1+1 GT) timesteps of velocity or density or both. u^n, grad_rho^n --> u^{n+1}
-            raise NotImplementedError()
+            pass
 
         elif self.case_name=="acc_in_acc_out": #contains 3 (2+1 GT) timesteps of derivative of velocity or density or both. delta_u^n (u^n-u^{n-1}) --> delta_u^{n+1} (u^{n+1}-u^n)
             for i in range(len(self.field_names)):
@@ -176,12 +176,14 @@ class CustomDataset(Dataset):
 
 class DataTransform(object):
 
-    def __init__(self, mean_info: List, std_info:List, field_names:str, param_names:str, case_name:str):
+    def __init__(self, mean_info: List, std_info:List, new_mean:Dict, new_std:Dict, field_names:str, param_names:str, case_name:str):
         self.mean = torch.tensor(mean_info)
         self.std = torch.tensor(std_info)
         self.field_names = field_names
         self.param_names = param_names
         self.case_name = case_name
+        self.new_mean = new_mean
+        self.new_std = new_std
         #TODO : Make the mean and std as a dictionary with field names as keys and mean and std as values
     def __call__(self, sample):
         """
@@ -205,6 +207,8 @@ class DataTransform(object):
 
         #mean_info =self.mean[all_filter].reshape((1, -1, 1, 1)) #mean_info.shape (1, 4, 1, 1) for velocity (2), density(1), Re(1)
         """
+        sample_copy = sample.clone()
+        
         if self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['density','velocity']:
             sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]     #normalizing the density derivative
             sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]     #normalizing the x-velocity derivative (acc_x)

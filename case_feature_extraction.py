@@ -106,6 +106,8 @@ def main(cfg: DictConfig):
     
     dataset_train.transform = DataTransform(mean_info=cfg.data.normalization_mean, 
                                             std_info=cfg.data.normalization_std,
+                                            new_mean = cfg.data.norm_mean,
+                                            new_std = cfg.data.norm_std,
                                             field_names=cfg.data.field_names,
                                             param_names=cfg.data.param_names,
                                             case_name=cfg.data.case_name)
@@ -118,7 +120,7 @@ def main(cfg: DictConfig):
     log.log("base_folder: "+str(cfg.data.base_folder))
     log.log("field_names: "+str(cfg.data.field_names))
     log.log("param_names: "+str(cfg.data.param_names))
-    log.log("param_values: "+str(cfg.data.param_values))
+    #log.log("param_values: "+str(cfg.data.param_values))
     log.log("filter_frame (min and max frames used from the simulation): "+str(cfg.data.filter_frame))
     log.log("sequence_info (i/p+gt, sequnce_stride): "+str(cfg.data.sequence_info))
     log.log("mean_info: "+str(cfg.data.normalization_mean))

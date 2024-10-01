@@ -41,8 +41,8 @@
             "program": "case_feature_extraction.py",
             "console": "integratedTerminal",
             "args": [
-                //"data=1.kvs_vel_den_rin_rout_re_200_400.yaml",
-                "data=1.kvs_vel_rin_rout_re_200_400.yaml",
+                "data=1.kvs_vel_den_rin_rout_re_200_400.yaml",
+                //"data=1.kvs_vel_rin_rout_re_200_400.yaml",
                 "arch=1.rin_rout",
                 //"data.field_names=['velocity', 'density']",
                 //"data.param_names=[]",

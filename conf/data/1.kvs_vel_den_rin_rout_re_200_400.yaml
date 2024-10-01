@@ -16,3 +16,5 @@ param_names: ['Re']
 filter_frame: [[350, 1000]]
 sequence_info: [[2, 1]] #[[num_timesteps (including the GT), sequence_stride]]
 n_rollout_steps: 1
+norm_mean: {rho: 1.130355, u: 0.029989, v: 0.0, Re: 300}
+norm_std: {rho: 0.05823061, u: 0.01375248, v: 0.01020263, Re: 81.6496581}

@@ -2,15 +2,15 @@ base_folder: Dataset_KVS_200_0.2_re_100-500/train
 num_channels: 4
 case_name: acc_in_acc_out
 normalization_mean:
-- 1.1166793   # density mean
-- 2.9989550e-02 # velocity_x mean
-- 2.9060382e-07 # velocity_y mean
-- 300         # Re mean
+- 1.2319098e-04     # density_acc(time derivative)
+- 1.0259549e-05     # acc_x
+- -4.2665965e-07    # acc_y
+- 300               # Re
 normalization_std:
-- 0.05635419  # density std
-- 0.01839873  # velocity_x std
-- 0.01116166 # velocity_y std
-- 141.42      # Re std
+- 0.00524045 
+- 0.00763329
+- 0.01128776
+- 81.6496581
 field_names: ['density', 'velocity']
 param_names: ['Re']
 filter_frame: [[350, 1000]]
