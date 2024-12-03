@@ -31,10 +31,12 @@ import torch
 from torch.utils.data import random_split
 from validator import GridValidator
 from custom_karman_street_dataset import CustomDataset, DataTransform
+from hydra.utils import get_original_cwd
 
 import os
 import shutil
 import wandb
+import h5py
 
 @hydra.main(version_base="1.3", config_path="./conf", config_name="config.yaml")
 def main(cfg: DictConfig):   
@@ -50,15 +52,9 @@ def main(cfg: DictConfig):
 
     LaunchLogger.initialize()  
 
-    ##hardcoded for now (assuming only Re is the parameter)
-    if cfg.data.param_names == []:
-        cfg.data.num_channels = cfg.data.num_channels - 1
-        #cfg.arch.fno.in_channels = eval(str(cfg.arch.fno.in_channels)) 
-        #cfg.arch.decoder.out_features = eval(str(cfg.arch.decoder.out_features)) 
-
-    #Re is not predicted (hardcoded)
-    else:
-        cfg.arch.decoder.out_features = eval(str(cfg.arch.decoder.out_features))-1 
+    #input is conditioned with Re
+    if cfg.data.param_names != []:
+        cfg.arch.fno.in_channels = eval(str(cfg.arch.fno.in_channels))+1 #+1 channel for Re
 
     # define model, loss, optimiser, scheduler, data loader
     model = FNO(
@@ -69,7 +65,7 @@ def main(cfg: DictConfig):
         dimension=cfg.arch.fno.dimension,              
         latent_channels=cfg.arch.fno.latent_channels,   
         num_fno_layers=cfg.arch.fno.fno_layers,         
-        num_fno_modes=cfg.arch.fno.fno_modes,           
+        num_fno_modes=eval(cfg.arch.fno.fno_modes),           
         padding=cfg.arch.fno.padding,                   
     ).to(dist.device)
 
@@ -82,6 +78,7 @@ def main(cfg: DictConfig):
     log.log("############################################################################################################")
     log.log("Case Details:")
     log.log("case_name: " +str(cfg.data.case_name))
+    log.log("Train or Infer: "+str(cfg.data.mode))
 
     log.log("------------------------------------------------------------------------------------------------------------")
     log.log("Model Details:")
@@ -96,13 +93,23 @@ def main(cfg: DictConfig):
     log.log("num_fno_modes: "+str(cfg.arch.fno.fno_modes))
     log.log("padding: "+str(cfg.arch.fno.padding))
 
+
+    #mask = torch.load(os.path.join(get_original_cwd(), "Dataset_KVS_200_0.2_re_100-500/obs_mask.pt"), weights_only=True)
+    
+    h5_file_path = os.path.join(get_original_cwd(), "VS_Re_100_to_500_uniform_skip_20_256x64/inverted_mask_256x64.h5")
+    with h5py.File(h5_file_path, 'r') as h5_file:
+        mask = h5_file['mask'][:]
+
+    mask = torch.tensor(mask, dtype=torch.float32)
+    mask = mask.to(dist.device)
+
     dataset_train = CustomDataset(base_folder=cfg.data.base_folder,
                                             field_names=cfg.data.field_names, 
                                             param_names=cfg.data.param_names, 
                                             filter_frame=cfg.data.filter_frame,
                                             sequence_info=cfg.data.sequence_info,
                                             case_name=cfg.data.case_name,
-                                            n_rollout_steps=cfg.data.n_rollout_steps)
+                                            obs_mask=mask)
     
     dataset_train.transform = DataTransform(mean_info=cfg.data.normalization_mean, 
                                             std_info=cfg.data.normalization_std,
@@ -111,14 +118,13 @@ def main(cfg: DictConfig):
                                             case_name=cfg.data.case_name)
 
     dataset_train, dataset_val = random_split(
-        dataset_train, [0.7, 0.3], generator=torch.Generator().manual_seed(42)
+        dataset_train, [0.9, 0.1], generator=torch.Generator().manual_seed(42)
     ) 
     log.log("------------------------------------------------------------------------------------------------------------")
     log.log("Train Dataset Details:")
     log.log("base_folder: "+str(cfg.data.base_folder))
     log.log("field_names: "+str(cfg.data.field_names))
     log.log("param_names: "+str(cfg.data.param_names))
-    #log.log("param_values: "+str(cfg.data.param_values))
     log.log("filter_frame (min and max frames used from the simulation): "+str(cfg.data.filter_frame))
     log.log("sequence_info (i/p+gt, sequnce_stride): "+str(cfg.data.sequence_info))
     log.log("mean_info: "+str(cfg.data.normalization_mean))
@@ -126,8 +132,8 @@ def main(cfg: DictConfig):
     log.log("No. of training batches (=len(train_loader)): "+str(ceil(len(dataset_train)/cfg.train.training.batch_size)))
     log.log("No. of validation batches (=len(val_loader)): "+str(ceil(len(dataset_val)/cfg.train.training.batch_size)))
     
-    train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True)
-    val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True)
+    train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True, num_workers=10)
+    val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True, num_workers=10)
 
     ckpt_args = {
         "path": os.path.dirname(os.getcwd()),
@@ -135,7 +141,8 @@ def main(cfg: DictConfig):
         "scheduler": scheduler,
         "models": model,
     }
-    validator = GridValidator(out_dir=ckpt_args["path"] + "/validators", loss_fun=MSELoss(), num_channels=cfg.arch.decoder.out_features)
+
+    validator = GridValidator(out_dir=ckpt_args["path"] + "/validators", loss_fun=MSELoss(), num_output_channels=cfg.arch.decoder.out_features, num_input_channels=cfg.arch.fno.in_channels, case_name=cfg.data.case_name ,mean_info=cfg.data.normalization_mean, std_info=cfg.data.normalization_std, obs_mask=mask) 
     
     # calculate the no. of times the training loop is executed for each pseudo epoch.
     steps_per_pseudo_epoch = ceil(cfg.train.training.pseudo_epoch_sample_size / cfg.train.training.batch_size)
@@ -153,10 +160,10 @@ def main(cfg: DictConfig):
     log.log("Training Details:")
     log.log("Batch size: "+str(cfg.train.training.batch_size))
     log.log("Number of epochs: "+str(cfg.train.training.max_pseudo_epochs))
-    log.log("Number of times the training loop is executed for each epoch: "+str(steps_per_pseudo_epoch))
-    log.log("Actual number of times training loop is executed for each epoch: "+str(min(steps_per_pseudo_epoch,len(train_dataloader))))
-    log.log("Number of times the validation loop is executed for each epoch: "+str(validation_iters))
-    log.log("Actual number of times validation loop is executed for each epoch: "+str(min(validation_iters,len(val_dataloader))))
+    #log.log("Number of times the training loop is executed for each epoch: "+str(steps_per_pseudo_epoch))
+    log.log("Actual number of times training loop is executed for each epoch: "+str(len(train_dataloader)))
+    #log.log("Number of times the validation loop is executed for each epoch: "+str(validation_iters))
+    log.log("Actual number of times validation loop is executed for each epoch: "+str(len(val_dataloader)))
     log.log("Checkpoint save frequency (After these many epochs): "+str(cfg.train.training.rec_results_freq))
     log.log("Initial learning rate: "+str(cfg.scheduler.initial_lr))
     log.log("Decay rate: "+str(cfg.scheduler.decay_rate))
@@ -223,8 +230,9 @@ def main(cfg: DictConfig):
         # Training loop
         with LaunchLogger(**log_args, epoch=pseudo_epoch) as logger:
             minibatch_losses = 0.0
-            for step, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
-                minibatch_loss = forward_train(batch[0].to(dist.device), batch[1].to(dist.device)) #batch[0].shape [16,2,512,256]; batch[1].shape [16,2,512,256]
+            #for step, batch in zip(range(steps_per_pseudo_epoch), train_dataloader):
+            for step, batch in zip(range(len(train_dataloader)), train_dataloader):
+                minibatch_loss = forward_train(batch[0].to(dist.device), batch[1].to(dist.device)) 
                 logger.log_minibatch({"loss": minibatch_loss.detach()}) #even if we pass minibatch_loss, the log_minibatch will accumulate and divided by the number of steps at the end of the epoch.
                 minibatch_losses += minibatch_loss.detach().item()
             logger.log_epoch({"Learning Rate": optimizer.param_groups[0]["lr"]})
@@ -240,18 +248,22 @@ def main(cfg: DictConfig):
         if pseudo_epoch % cfg.train.validation.validation_pseudo_epochs == 0:
             with LaunchLogger("valid", epoch=pseudo_epoch) as logger: #after one epoch, he logging happens here.
                 total_loss = 0.0
-                for step, batch in zip(range(validation_iters), val_dataloader):
+                #for step, batch in zip(range(validation_iters), val_dataloader):
+                for step, batch in zip(range(len(val_dataloader)), val_dataloader):
                 #for step, batch in zip(range(len(val_dataloader)), val_dataloader):
-                    val_loss = validator.compare(
-                        invar=batch[0].to(dist.device),
-                        target=batch[1].to(dist.device),
-                        prediction=forward_eval(batch[0].to(dist.device)),
-                        step=pseudo_epoch,
-                    )
-                    # batch[0].shape = [16,2,512,256]; batch[1].shape = [16,2,512,256]
-                    val_loss = validator.compute_only_loss(target=batch[1].to(dist.device)
-                                                          ,prediction=forward_eval(batch[0].to(dist.device)))
+                    # batch[0].shape = [16,#num_input_features,1024,256]; batch[1].shape = [16,#num_output_features,512,256]
+                    val_loss = validator.compute_only_loss(target=(batch[1]).to(dist.device)*mask,
+                                                          prediction=(forward_eval(batch[0].to(dist.device)))*mask)
+                    
                     total_loss += val_loss
+                
+                #plotting one validation image per epoch (just for sample 0 from the last batch)
+                validator.compare(
+                        invar=(batch[0].to(dist.device)),
+                        target=(batch[1].to(dist.device)),
+                        prediction=(forward_eval(batch[0].to(dist.device))),
+                        step=pseudo_epoch
+                    )
                 logger.log_epoch({"Validation error": total_loss / step}) #validation error per epoch
                 
                 #save the checkpoint with the best validation error inside the folder "best" to be used in inference.
@@ -283,26 +295,6 @@ def main(cfg: DictConfig):
 
     if cfg.output.logging.wandb:
         wandb.finish()
-
-
-    """
-    ################# Inference #######################
-    path = os.path.join(os.path.dirname(os.getcwd()),"best")
-    model_inf = Module.from_checkpoint(path).to(dist.device)
-    model_inf.eval()
-
-    
-    with torch.inference_mode():
-                #loading the data
-                data_x = data_x_total[0]
-                data_y = data_y_total[0]
-                input = data_x.to("cuda")
-                data_y = data_y.to("cuda")
- 
-                for t in range(prediction_timesteps):    
-                    output = model_inf(input)
-                    input = output.detach().clone()
-    """
 
 
 if __name__ == "__main__":

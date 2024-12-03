@@ -1,0 +1,10 @@
+base_folder: VS_Re_100_to_500_uniform_skip_20_256x64/train
+num_channels: 3
+mode: train
+case_name: acc_and_raw_in_raw_out
+normalization_mean: {rho: 0.9961059236556781, u: 0.019719137158659854, v: -1.3757537362120723e-07, drho_dt: 1.4410540360209807e-10, du_dt: 3.111448513087358e-10, dv_dt: 2.4236634390972382e-08, Re: 300.0}
+normalization_std:  {rho: 0.056231011720953246, u: 0.009242351924288919, v: 0.006628797328405983, drho_dt: 0.0001822608395055626, du_dt: 0.0007270720618435424, dv_dt: 0.0014189638116531528, Re: 121.10601416389966}
+field_names: ['density', 'velocity']
+param_names: ['Re']
+filter_frame: [[1, 1500]]
+sequence_info: [[3, 1]] #[[num_timesteps (including the GT), sequence_stride]]

@@ -1,20 +1,16 @@
 #########to be updated#########
-base_folder: ./Dataset_KVS_200_0.2_re_100-500/train
+base_folder: VS_Re_100_to_500_uniform_skip_20_256x64/train
 num_channels: 3
-# normalization_mean:
-# - 0.0197
-# - 0.0
-# - 300
-# normalization_std:
-# - 0.0034
-# - 0.0041
-# - 81.6496581
+mode: train
 field_names: ['velocity']
 param_names: ['Re']
 filter_frame: [(0, -1)]
 sequence_info: [(1, 1)]
-norm_mean: {rho: 1.130355, u: 0.029989, v: 0.0, drho_dt: 1.2319098e-04, du_dt: 1.0259549e-05 , dv_dt: -4.2665965e-07 ,Re: 300}
-norm_std: {rho: 0.05823061, u: 0.01375248, v: 0.01020263, drho_dt: 0.00524045, du_dt: 0.00763329, dv_dt: 0.01128776 ,Re: 81.6496581}
+normalization_mean: {rho: 0.9961059236556781, u: 0.019719137158659854, v: -1.3757537362120723e-07, drho_dt: 1.4410540360209807e-10, du_dt: 3.111448513087358e-10, dv_dt: 2.4236634390972382e-08, grad_rho_x/_rho: -0.0017172545603516844, grad_rho_y/_rho: 5.538637421885655e-07, Re: 300.0}
+normalization_std:  {rho: 0.056231011720953246, u: 0.009242351924288919, v: 0.006628797328405983, drho_dt: 0.0001822608395055626, du_dt: 0.0007270720618435424, dv_dt: 0.0014189638116531528, grad_rho_x/_rho: 0.12385641886847763, grad_rho_y/_rho: 0.16567487862295227, Re: 121.10601416389966}
+
+
+
 # base_folder: Dataset_KVS_200_0.2_re_100-500/infer
 # mode: infer
 # model_path: runs/FNOKarman_noRepred/20240921-115504_raw_in_raw_out_['density', 'velocity']_['Re']

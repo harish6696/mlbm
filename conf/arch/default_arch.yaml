@@ -8,5 +8,5 @@ fno:
   dimension: 2
   latent_channels: 32   #number of channels in the latent space after lifting.
   fno_layers: 5
-  fno_modes: 100
+  fno_modes: '[32,32]'
   padding: 9

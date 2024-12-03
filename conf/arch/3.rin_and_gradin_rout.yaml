@@ -4,7 +4,7 @@ decoder:
   layer_size: 128
 
 fno:
-  in_channels: ${data.num_channels}
+  in_channels: ${data.num_channels}+2
   dimension: 2
   latent_channels: 32   #number of channels in the latent space after lifting.
   fno_layers: 7

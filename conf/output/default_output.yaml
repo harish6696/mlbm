@@ -1,4 +1,4 @@
-output_name: FNO_Karman
+output_name: FNO_Karman_256x64
 timestamp: ${now:%Y%m%d}-${now:%H%M%S}
 
 logging: 

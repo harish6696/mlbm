@@ -1,0 +1,11 @@
+#base_folder: Dataset_KVS_200_0.2_re_100-500/temp
+base_folder: VS_Re_100_to_500_uniform_skip_20_256x64/train
+mode: train
+num_channels: 3 #rho, u, v
+case_name: raw_in_raw_out
+normalization_mean: {rho: 0.9961059236556781, u: 0.019719137158659854, v: -1.3757537362120723e-07,  Re: 300.0}
+normalization_std:  {rho: 0.056231011720953246, u: 0.009242351924288919, v: 0.006628797328405983, Re: 121.10601416389966}
+field_names: ['density', 'velocity']
+param_names: ['Re']
+filter_frame: [[1, 1500]]
+sequence_info: [[2, 1]] #[[num_timesteps (including the GT), sequence_stride]]

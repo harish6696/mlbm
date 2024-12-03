@@ -1,0 +1,12 @@
+base_folder: VS_Re_100_to_500_uniform_skip_20_256x64/infer
+mode: infer
+model_path: runs/FNOKarman_256x64/20241125-215322_train_raw_and_grad_rho_in_raw_out_['density', 'velocity']_['Re']
+num_channels: 3
+case_name: raw_and_grad_rho_in_raw_out
+normalization_mean: {rho: 0.9961059236556781, u: 0.019719137158659854, v: -1.3757537362120723e-07, grad_rho_x/_rho: -0.0017172545603516844, grad_rho_y/_rho: 5.538637421885655e-07, Re: 300.0}
+normalization_std:  {rho: 0.056231011720953246, u: 0.009242351924288919, v: 0.006628797328405983, grad_rho_x/_rho: 0.12385641886847763, grad_rho_y/_rho: 0.16567487862295227, Re: 121.10601416389966}
+field_names: ['density', 'velocity']
+param_names: ['Re']
+filter_frame: [[1, 1500]]
+sequence_info: [[2, 1]] #[[num_timesteps (including the GT), sequence_stride]]
+n_rollout_steps: 10

@@ -17,13 +17,14 @@ import torch
 import matplotlib.pyplot as plt
 from torch import FloatTensor
 from torch.nn import MSELoss
-from mlflow import log_figure
 import numpy as np
 from vtk import vtkImageData
 from vtk.util import numpy_support
 from vtk import vtkXMLImageDataWriter
 from pathlib import Path
+from typing import Dict
 
+import copy
 
 class GridValidator:
     """Grid Validator
@@ -46,19 +47,156 @@ class GridValidator:
     def __init__(
         self,
         loss_fun,
-        num_channels: int,
-        norm: dict = {"permeability": (0.0, 1.0), "darcy": (0.0, 1.0)},
+        num_output_channels: int,
+        num_input_channels: int,
+        case_name:str,
+        mean_info: Dict,
+        std_info: Dict,
         out_dir: str = "./outputs/validators",
         font_size: float = 28.0,
+        mode:str='train',
+        **kwargs
     ):
-        self.norm = norm
         self.criterion = loss_fun #MSE_Loss (L2)
-        self.num_channels = num_channels 
+        self.case_name = case_name
+        self.mean= mean_info
+        self.std = std_info
+        self.num_output_channels = num_output_channels 
+        self.num_input_channels = num_input_channels
         self.font_size = font_size
-        self.headers = ("invar", "truth", "prediction", "relative error", "difference target invar")
+        self.headers = ("input", "truth", "prediction", "abs error", "relative error")
         self.out_dir = os.path.abspath(os.path.join(os.getcwd(), out_dir))
+        
+        self.obs_mask = kwargs["obs_mask"]
+        self.obs_mask=self.obs_mask.float().cpu().numpy()
+        self.obs_mask[self.obs_mask == 0] = float('nan')#repalce 0 with nan inside the obstacle mask
+        self.obs_mask = np.squeeze(self.obs_mask)
+
+        self.mode = mode #train or infer
+        
         if not os.path.exists(self.out_dir):
             os.makedirs(self.out_dir)
+
+    def undo_normalization(self, invar, target, prediction): #only for plotting
+        
+        #work with the 0th index of the batch because we are only plotting that.
+        #assume density is always included in the first channel
+
+        if self.case_name == "raw_in_raw_out": #case 1
+            invar[:, 0, :, :] = invar[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            invar[:, 1, :, :] = invar[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            invar[:, 2, :, :] = invar[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+            #check if Re exists in the key of self.mean
+            if "Re" in self.mean.keys():
+                invar[:, 3, :, :] = invar[:, 3, :, :] * self.std["Re"] + self.mean["Re"]
+
+            target[:, 0, :, :] = target[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            target[:, 1, :, :] = target[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            target[:, 2, :, :] = target[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+            prediction[:, 0, :, :] = prediction[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            prediction[:, 1, :, :] = prediction[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            prediction[:, 2, :, :] = prediction[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+
+        elif self.case_name == "3_hist_raw_in_raw_out": #case 2
+            invar[:, 0, :, :] = invar[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            invar[:, 1, :, :] = invar[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            invar[:, 2, :, :] = invar[:, 2, :, :] * self.std["v"] + self.mean["v"]
+            invar[:, 3, :, :] = invar[:, 3, :, :] * self.std["rho"] + self.mean["rho"]
+            invar[:, 4, :, :] = invar[:, 4, :, :] * self.std["u"] + self.mean["u"]
+            invar[:, 5, :, :] = invar[:, 5, :, :] * self.std["v"] + self.mean["v"]
+            invar[:, 6, :, :] = invar[:, 6, :, :] * self.std["rho"] + self.mean["rho"]
+            invar[:, 7, :, :] = invar[:, 7, :, :] * self.std["u"] + self.mean["u"]
+            invar[:, 8, :, :] = invar[:, 8, :, :] * self.std["v"] + self.mean["v"]
+
+            if "Re" in self.mean.keys():
+                invar[:, 9, :, :] = invar[:, 9, :, :] * self.std["Re"] + self.mean["Re"]
+
+            target[:, 0, :, :] = target[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            target[:, 1, :, :] = target[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            target[:, 2, :, :] = target[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+            prediction[:, 0, :, :] = prediction[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            prediction[:, 1, :, :] = prediction[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            prediction[:, 2, :, :] = prediction[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+
+        elif self.case_name == "raw_and_grad_rho_in_raw_out": #case 3
+            invar[:, 0, :, :] = invar[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            invar[:, 1, :, :] = invar[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            invar[:, 2, :, :] = invar[:, 2, :, :] * self.std["v"] + self.mean["v"]
+            invar[:, 3, :, :] = invar[:, 3, :, :] * self.std["grad_rho_x/_rho"] + self.mean["grad_rho_x/_rho"]
+            invar[:, 4, :, :] = invar[:, 4, :, :] * self.std["grad_rho_y/_rho"] + self.mean["grad_rho_y/_rho"]
+
+            #check if Re exists in the key of self.mean
+            if "Re" in self.mean.keys():
+                invar[:, 5, :, :] = invar[:, 5, :, :] * self.std["Re"] + self.mean["Re"]
+
+            target[:, 0, :, :] = target[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            target[:, 1, :, :] = target[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            target[:, 2, :, :] = target[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+            prediction[:, 0, :, :] = prediction[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            prediction[:, 1, :, :] = prediction[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            prediction[:, 2, :, :] = prediction[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+        elif self.case_name=="acc_in_acc_out": #case 4
+            invar[:, 0, :, :] = invar[:, 0, :, :] * self.std["drho_dt"] + self.mean["drho_dt"]
+            invar[:, 1, :, :] = invar[:, 1, :, :] * self.std["du_dt"] + self.mean["du_dt"]
+            invar[:, 2, :, :] = invar[:, 2, :, :] * self.std["dv_dt"] + self.mean["dv_dt"]
+
+            if "Re" in self.mean.keys():
+                invar[:, 3, :, :] = invar[:, 3, :, :] * self.std["Re"] + self.mean["Re"]
+            
+            #(target and prediction are already renormalized)
+
+        elif self.case_name == "2_hist_acc_in_acc_out": #case 5
+            invar[:, 0, :, :] = invar[:, 0, :, :] * self.std["drho_dt"] + self.mean["drho_dt"]
+            invar[:, 1, :, :] = invar[:, 1, :, :] * self.std["du_dt"] + self.mean["du_dt"]
+            invar[:, 2, :, :] = invar[:, 2, :, :] * self.std["dv_dt"] + self.mean["dv_dt"]
+            invar[:, 3, :, :] = invar[:, 3, :, :] * self.std["drho_dt"] + self.mean["drho_dt"]
+            invar[:, 4, :, :] = invar[:, 4, :, :] * self.std["du_dt"] + self.mean["du_dt"]
+            invar[:, 5, :, :] = invar[:, 5, :, :] * self.std["dv_dt"] + self.mean["dv_dt"]
+
+            if "Re" in self.mean.keys():
+                invar[:, 6, :, :] = invar[:, 6, :, :] * self.std["Re"] + self.mean["Re"]
+            
+            # target[:, 0, :, :] = target[:, 0, :, :] * self.std["drho_dt"] + self.mean["drho_dt"]
+            # target[:, 1, :, :] = target[:, 1, :, :] * self.std["du_dt"] + self.mean["du_dt"]
+            # target[:, 2, :, :] = target[:, 2, :, :] * self.std["dv_dt"] + self.mean["dv_dt"]
+
+            # prediction[:, 0, :, :] = prediction[:, 0, :, :] * self.std["drho_dt"] + self.mean["drho_dt"]
+            # prediction[:, 1, :, :] = prediction[:, 1, :, :] * self.std["du_dt"] + self.mean["du_dt"]
+            # prediction[:, 2, :, :] = prediction[:, 2, :, :] * self.std["dv_dt"] + self.mean["dv_dt"]
+
+        elif self.case_name == "acc_and_raw_in_raw_out": #case 6
+            invar[:, 0, :, :] = invar[:, 0, :, :] * self.std["drho_dt"] + self.mean["drho_dt"]
+            invar[:, 1, :, :] = invar[:, 1, :, :] * self.std["du_dt"] + self.mean["du_dt"]
+            invar[:, 2, :, :] = invar[:, 2, :, :] * self.std["dv_dt"] + self.mean["dv_dt"]
+            invar[:, 3, :, :] = invar[:, 3, :, :] * self.std["rho"] + self.mean["rho"]
+            invar[:, 4, :, :] = invar[:, 4, :, :] * self.std["u"] + self.mean["u"]
+            invar[:, 5, :, :] = invar[:, 5, :, :] * self.std["v"] + self.mean["v"]
+
+            #check if Re exists in the key of self.mean
+            if "Re" in self.mean.keys():
+                invar[:, 6, :, :] = invar[:, 6, :, :] * self.std["Re"] + self.mean["Re"]
+
+            target[:, 0, :, :] = target[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            target[:, 1, :, :] = target[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            target[:, 2, :, :] = target[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+            prediction[:, 0, :, :] = prediction[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            prediction[:, 1, :, :] = prediction[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            prediction[:, 2, :, :] = prediction[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+        else:
+            #raise a not implenmented error
+            raise NotImplementedError("This case is not implemented/found")
+
+        return invar, target, prediction
+        
 
     def compare(
         self,
@@ -85,54 +223,59 @@ class GridValidator:
         float
             validation error
         """
-        loss = self.criterion(prediction, target) #scalar value MSE_loss
-        norm = self.norm
+        # loss = self.criterion(prediction, target) #scalar value MSE_loss
+        # norm = self.norm
+
+        #undo normalization
+        invar, target, prediction = self.undo_normalization(copy.deepcopy(invar), copy.deepcopy(target), copy.deepcopy(prediction.detach()))
 
         invar = invar.cpu().numpy()
         target = target.cpu().numpy()
-        prediction = prediction.detach().cpu().numpy()
+        prediction = prediction.cpu().numpy()
 
         num_plots = 5
+        
+        colormap = 'viridis'
 
         im = [None] * num_plots
-        im = [im] * (self.num_channels + 1)
+        im = [im] * (self.num_input_channels)
 
         plt.close("all")
         plt.rcParams.update({"font.size": self.font_size})
-        fig, ax = plt.subplots(self.num_channels + 1, num_plots, figsize=(15 * num_plots, 15 * (self.num_channels + 1)), sharey=True)
+        fig, ax = plt.subplots(self.num_input_channels, num_plots, figsize=(15 * num_plots, 15 * (self.num_input_channels + 1)), sharey=True)
 
         #plot for each and every channel for the first batch element
-        for channel in range(self.num_channels):
-            # pick first sample from batch
-            invar_plot = invar[0, channel, :, :]
+        for input_channel in range(self.num_input_channels):
+            invar_plot = invar[0, input_channel, :, :]
+            im[input_channel][0] = ax[input_channel][0].imshow(invar_plot*self.obs_mask, cmap=colormap)
+            fig.colorbar(im[input_channel][0], ax=ax[input_channel][0], location="bottom", fraction=0.046, pad=0.04)
+            ax[input_channel][0].set_title(self.headers[0])
+
+        for channel in range(self.num_output_channels): 
             target_plot = target[0, channel, :, :]
             prediction_plot = prediction[0, channel, :, :]
-            im[channel][0] = ax[channel][0].imshow(invar_plot)
-            im[channel][1] = ax[channel][1].imshow(target_plot)
-            im[channel][2] = ax[channel][2].imshow(prediction_plot)
-            im[channel][3] = ax[channel][3].imshow(np.clip((prediction_plot - target_plot) / target_plot, a_min=-1.0, a_max=1.0))
-            im[channel][4] = ax[channel][4].imshow(target_plot - invar_plot)
+            
+            im[channel][1] = ax[channel][1].imshow(target_plot*self.obs_mask, cmap=colormap)
+            fig.colorbar(im[channel][1], ax=ax[channel][1], location="bottom", fraction=0.046, pad=0.04)
+            ax[channel][1].set_title(self.headers[1])
 
-        #magnitude plot in the last row, of the first batch element. invar.shape = [#num_batch_elements,#num_channels,x_res,y_res]
-        invar_plot = np.linalg.norm(invar[0, ...], axis=0)  #invar[0, ...].shape = [#num_channels, 512, 256], now axis=0 means it will calculate the norm over the num. channels.
-        target_plot = np.linalg.norm(target[0, ...], axis=0)
-        prediction_plot = np.linalg.norm(prediction[0, ...], axis=0)
-        im[self.num_channels][0] = ax[self.num_channels][0].imshow(invar_plot)
-        im[self.num_channels][1] = ax[self.num_channels][1].imshow(target_plot)
-        im[self.num_channels][2] = ax[self.num_channels][2].imshow(prediction_plot)
-        im[self.num_channels][3] = ax[self.num_channels][3].imshow(np.clip((prediction_plot - target_plot) / target_plot, a_min=-1.0, a_max=1.0))
-        im[self.num_channels][4] = ax[self.num_channels][4].imshow(target_plot - invar_plot)
+            im[channel][2] = ax[channel][2].imshow(prediction_plot*self.obs_mask, cmap=colormap)
+            fig.colorbar(im[channel][2], ax=ax[channel][2], location="bottom", fraction=0.046, pad=0.04)
+            ax[channel][2].set_title(self.headers[2])
+            
+            im[channel][3] = ax[channel][3].imshow(np.abs(target_plot - prediction_plot)*self.obs_mask, cmap=colormap)
+            fig.colorbar(im[channel][3], ax=ax[channel][3], location="bottom", fraction=0.046, pad=0.04)
+            ax[channel][3].set_title(self.headers[3])
 
-        #final loop to add colorbar to each plot
-        for channel in range(self.num_channels + 1):
-            for plot in range(num_plots):
-                fig.colorbar(im[channel][plot], ax=ax[channel][plot], location="bottom", fraction=0.046, pad=0.04)
-                ax[channel][plot].set_title(self.headers[plot])
+            im[channel][4] = ax[channel][4].imshow(np.clip(((prediction_plot - target_plot) / target_plot)*self.obs_mask, a_min=-1.0, a_max=1.0), cmap=colormap)
+            fig.colorbar(im[channel][4], ax=ax[channel][4], location="bottom", fraction=0.046, pad=0.04)
+            ax[channel][4].set_title(self.headers[4]) 
 
-        log_figure(fig, f"val_step_{step}.png")
-        fig.savefig(os.path.join(self.out_dir, f"validation_step_{step}.png"))
-
-        return loss
+        if self.mode == "infer":
+            fig.savefig(os.path.join(self.out_dir, f"rollout_step_{step}.png"))
+        else:
+            fig.savefig(os.path.join(self.out_dir, f"validation_step_{step}.png"))
+    
     
     def compute_only_loss(
         self,    

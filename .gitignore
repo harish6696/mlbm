@@ -19,3 +19,9 @@ wandb
 *.gif
 
 old_datasets/*
+
+*.h5
+.hydra/
+*.npy
+
+rollout_*/

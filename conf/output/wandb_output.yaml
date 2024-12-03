@@ -3,5 +3,5 @@ timestamp: ${now:%Y%m%d}-${now:%H%M%S}
 
 logging: 
   wandb: True  
-  wandb_project: "feature_engg_1"
+  wandb_project: "feature_engg_256x64_trainRe_140_to_460_uniform_skip_20"
   wandb_entity: "genufasd"
