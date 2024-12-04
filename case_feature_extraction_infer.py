@@ -235,8 +235,19 @@ def main(cfg: DictConfig):
                     output = output*mask
                     target_tensor[:,t,:,:,:] = target_tensor[:,t,:,:,:]*mask
 
+                    #normalize the output and target_tensor_velocity
+                    output_velocity[:,0,:,:] = (output_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    output_velocity[:,1,:,:] = (output_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    output_velocity[:,2,:,:] = (output_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    target_tensor_velocity[:,0,:,:] = (target_tensor_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    target_tensor_velocity[:,1,:,:] = (target_tensor_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    target_tensor_velocity[:,2,:,:] = (target_tensor_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
                     output_velocity = output_velocity*mask
                     target_tensor_velocity = target_tensor_velocity*mask
+
+                    step_loss = MSELoss()(output_velocity, target_tensor_velocity) 
 
                     validator.compare(
                             invar=input_tensor,
@@ -244,11 +255,18 @@ def main(cfg: DictConfig):
                             prediction=output_velocity,
                             step=t,
                         )
-                    
-                    #step_loss = MSELoss()(output, target_tensor[:,t,:,:,:]) #loss is computed over the differnces of the field data
-                    step_loss = MSELoss()(output_velocity, target_tensor_velocity) 
-                    
+
                     loss.append(step_loss.item())
+                    
+                    # renormalize the output and target_tensor_velocity to physical units as they will be used in the next iteration to add to the acceleration
+                    output_velocity[:,0,:,:]= output_velocity[:,0,:,:]*cfg.data.normalization_std['rho'] + cfg.data.normalization_mean['rho']
+                    output_velocity[:,1,:,:]= output_velocity[:,1,:,:]*cfg.data.normalization_std['u'] + cfg.data.normalization_mean['u']
+                    output_velocity[:,2,:,:]= output_velocity[:,2,:,:]*cfg.data.normalization_std['v'] + cfg.data.normalization_mean['v']
+
+                    target_tensor_velocity[:,0,:,:]= target_tensor_velocity[:,0,:,:]*cfg.data.normalization_std['rho'] + cfg.data.normalization_mean['rho']
+                    target_tensor_velocity[:,1,:,:]= target_tensor_velocity[:,1,:,:]*cfg.data.normalization_std['u'] + cfg.data.normalization_mean['u']
+                    target_tensor_velocity[:,2,:,:]= target_tensor_velocity[:,2,:,:]*cfg.data.normalization_std['v'] + cfg.data.normalization_mean['v']
+                    
                     input_tensor = output.detach().clone()
                     
                     if cfg.data.param_names is not None:
@@ -277,20 +295,43 @@ def main(cfg: DictConfig):
                         output_velocity = output_renormalized+output_velocity
                         target_tensor_velocity = target_tensor_renormalized+target_tensor_velocity                   
 
-                    one_step_from_input = one_step_from_input*mask
-                    output = output*mask
-                    target_tensor[:,t,:,:,:] = target_tensor[:,t,:,:,:]*mask
+                    #normalize the output and target_tensor_velocity
+                    output_velocity[:,0,:,:] = (output_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    output_velocity[:,1,:,:] = (output_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    output_velocity[:,2,:,:] = (output_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    target_tensor_velocity[:,0,:,:] = (target_tensor_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    target_tensor_velocity[:,1,:,:] = (target_tensor_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    target_tensor_velocity[:,2,:,:] = (target_tensor_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
 
                     validator.compare(
-                            invar=input_tensor,
-                            target=target_tensor_velocity, #these are already renormalized
-                            prediction=output_velocity,
+                            invar=(input_tensor),
+                            target=(target_tensor_velocity), 
+                            prediction=(output_velocity),
                             step=t,
                         )
+
+                    output_velocity = output_velocity*mask
+                    target_tensor_velocity = target_tensor_velocity*mask
+
                     step_loss = MSELoss()(output_velocity, target_tensor_velocity) 
+
                     #step_loss = MSELoss()(output, target_tensor[:,t,:,:,:]) #loss is computed over the differnces of the field data
                     loss.append(step_loss.item())
 
+                    # renormalize the output and target_tensor_velocity to physical units as they will be used in the next iteration to add to the acceleration
+                    output_velocity[:,0,:,:]= output_velocity[:,0,:,:]*cfg.data.normalization_std['rho'] + cfg.data.normalization_mean['rho']
+                    output_velocity[:,1,:,:]= output_velocity[:,1,:,:]*cfg.data.normalization_std['u'] + cfg.data.normalization_mean['u']
+                    output_velocity[:,2,:,:]= output_velocity[:,2,:,:]*cfg.data.normalization_std['v'] + cfg.data.normalization_mean['v']
+
+                    target_tensor_velocity[:,0,:,:]= target_tensor_velocity[:,0,:,:]*cfg.data.normalization_std['rho'] + cfg.data.normalization_mean['rho']
+                    target_tensor_velocity[:,1,:,:]= target_tensor_velocity[:,1,:,:]*cfg.data.normalization_std['u'] + cfg.data.normalization_mean['u']
+                    target_tensor_velocity[:,2,:,:]= target_tensor_velocity[:,2,:,:]*cfg.data.normalization_std['v'] + cfg.data.normalization_mean['v']
+                    
+                    one_step_from_input = one_step_from_input*mask
+                    output = output*mask
+                    target_tensor[:,t,:,:,:] = target_tensor[:,t,:,:,:]*mask
+                    
                     if cfg.data.param_names is not None:
                         output = torch.cat((output.detach().clone(), param_tensor), dim=1)
 
@@ -338,7 +379,7 @@ def main(cfg: DictConfig):
     Re_string= os.listdir(os.path.join(get_original_cwd(), cfg.data.base_folder))[0]
     batch_loss_list = np.array(batch_loss_list)
     #save the loss list
-    file_path = os.path.join(os.getcwd(), f"{cfg.data.case_name}_{Re_string}_fno_no_pad.npy")
+    file_path = os.path.join(os.getcwd(), f"{cfg.data.case_name}_{Re_string}.npy")
     np.save(file_path, batch_loss_list)
 
 if __name__ == "__main__":

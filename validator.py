@@ -150,6 +150,13 @@ class GridValidator:
             if "Re" in self.mean.keys():
                 invar[:, 3, :, :] = invar[:, 3, :, :] * self.std["Re"] + self.mean["Re"]
             
+            target[:, 0, :, :] = target[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            target[:, 1, :, :] = target[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            target[:, 2, :, :] = target[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+            prediction[:, 0, :, :] = prediction[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            prediction[:, 1, :, :] = prediction[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            prediction[:, 2, :, :] = prediction[:, 2, :, :] * self.std["v"] + self.mean["v"]
             #(target and prediction are already renormalized)
 
         elif self.case_name == "2_hist_acc_in_acc_out": #case 5
@@ -163,6 +170,14 @@ class GridValidator:
             if "Re" in self.mean.keys():
                 invar[:, 6, :, :] = invar[:, 6, :, :] * self.std["Re"] + self.mean["Re"]
             
+            target[:, 0, :, :] = target[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            target[:, 1, :, :] = target[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            target[:, 2, :, :] = target[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
+            prediction[:, 0, :, :] = prediction[:, 0, :, :] * self.std["rho"] + self.mean["rho"]
+            prediction[:, 1, :, :] = prediction[:, 1, :, :] * self.std["u"] + self.mean["u"]
+            prediction[:, 2, :, :] = prediction[:, 2, :, :] * self.std["v"] + self.mean["v"]
+
             # target[:, 0, :, :] = target[:, 0, :, :] * self.std["drho_dt"] + self.mean["drho_dt"]
             # target[:, 1, :, :] = target[:, 1, :, :] * self.std["du_dt"] + self.mean["du_dt"]
             # target[:, 2, :, :] = target[:, 2, :, :] * self.std["dv_dt"] + self.mean["dv_dt"]
