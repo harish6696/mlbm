@@ -1,6 +1,6 @@
 base_folder: VS_Re_100_to_500_uniform_skip_20_256x64/infer
 mode: infer
-model_path: runs/FNOKarman_256x64_no_fno_padding/20241129-182304_train_2_hist_acc_in_acc_out_['density', 'velocity']_['Re']
+model_path: runs/FNOKarman_256x64/20241125-220601_train_2_hist_acc_in_acc_out_['density', 'velocity']_['Re']
 num_channels: 3
 case_name: 2_hist_acc_in_acc_out
 normalization_mean: {rho: 0.9961059236556781, u: 0.019719137158659854, v: -1.3757537362120723e-07, drho_dt: 1.4410540360209807e-10, du_dt: 3.111448513087358e-10, dv_dt: 2.4236634390972382e-08, Re: 300.0}
