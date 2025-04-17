@@ -9,7 +9,7 @@ from scipy.ndimage import binary_dilation
 base_folder="VS_Re_100_to_500_uniform_skip_20_256x64/train"
 res_x= 256
 res_y= 64
-mask_file_location = "inverted_mask_256x64.h5"
+mask_file_location = "VS_Re_100_to_500_uniform_skip_20_256x64/inverted_mask_256x64.h5"
 #load the h5 file
 mask_file = h5py.File(mask_file_location, 'r')
 mask_256x64 = mask_file['mask'][:]
