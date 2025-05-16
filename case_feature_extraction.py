@@ -132,8 +132,8 @@ def main(cfg: DictConfig):
     log.log("No. of training batches (=len(train_loader)): "+str(ceil(len(dataset_train)/cfg.train.training.batch_size)))
     log.log("No. of validation batches (=len(val_loader)): "+str(ceil(len(dataset_val)/cfg.train.training.batch_size)))
     
-    train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True, num_workers=10)
-    val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True, num_workers=10)
+    train_dataloader = DataLoader(dataset=dataset_train, batch_size = cfg.train.training.batch_size, shuffle=True, num_workers=10, drop_last=True)
+    val_dataloader = DataLoader(dataset=dataset_val, batch_size = cfg.train.training.batch_size, shuffle=True, num_workers=10, drop_last=True)
 
     ckpt_args = {
         "path": os.path.dirname(os.getcwd()),
@@ -145,14 +145,14 @@ def main(cfg: DictConfig):
     validator = GridValidator(out_dir=ckpt_args["path"] + "/validators", loss_fun=MSELoss(), num_output_channels=cfg.arch.decoder.out_features, num_input_channels=cfg.arch.fno.in_channels, case_name=cfg.data.case_name ,mean_info=cfg.data.normalization_mean, std_info=cfg.data.normalization_std, obs_mask=mask) 
     
     # calculate the no. of times the training loop is executed for each pseudo epoch.
-    steps_per_pseudo_epoch = ceil(cfg.train.training.pseudo_epoch_sample_size / cfg.train.training.batch_size)
-    #steps_per_pseudo_epoch = 2048/16 = 128. 128 times the training loop is executed for each pseudo epoch.
+    #steps_per_pseudo_epoch = ceil(cfg.train.training.pseudo_epoch_sample_size / cfg.train.training.batch_size) #TODO: remove (not used)
+    #steps_per_pseudo_epoch = 2048/16 = 128. 128 times the training loop is executed for each pseudo epoch. #TODO: remove (not used)
 
     validation_iters = ceil(cfg.train.validation.sample_size / cfg.train.training.batch_size) #validation_iters = 256/16 = 16.
     
     log_args = {
         "name_space": "train",
-        "num_mini_batch": steps_per_pseudo_epoch,
+        #"num_mini_batch": steps_per_pseudo_epoch,
         "epoch_alert_freq": 1,
     }
 
@@ -170,16 +170,16 @@ def main(cfg: DictConfig):
     log.log("Decay frequency (After these many epochs): "+str(cfg.scheduler.decay_pseudo_epochs))
     log.log("############################################################################################################")
 
-    if cfg.train.training.pseudo_epoch_sample_size % cfg.train.training.batch_size != 0:
-        log.warning(
-            f"increased pseudo_epoch_sample_size to multiple of \
-                      batch size: {steps_per_pseudo_epoch*cfg.train.training.batch_size}"
-        )
-    if cfg.train.validation.sample_size % cfg.train.training.batch_size != 0:
-        log.warning(
-            f"increased validation sample size to multiple of \
-                      batch size: {validation_iters*cfg.train.training.batch_size}"
-        )
+    # if cfg.train.training.pseudo_epoch_sample_size % cfg.train.training.batch_size != 0:
+    #     log.warning(
+    #         f"increased pseudo_epoch_sample_size to multiple of \
+    #                   batch size: {steps_per_pseudo_epoch*cfg.train.training.batch_size}"
+    #     )
+    # if cfg.train.validation.sample_size % cfg.train.training.batch_size != 0:
+    #     log.warning(
+    #         f"increased validation sample size to multiple of \
+    #                   batch size: {validation_iters*cfg.train.training.batch_size}"
+    #     )
 
     # define forward passes for training and inference
     @StaticCaptureTraining(
