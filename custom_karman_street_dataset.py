@@ -112,14 +112,31 @@ class CustomDataset(Dataset):
             
         elif self.case_name=="acc_in_acc_out": #contains 3 (2+1 GT) timesteps of derivative of velocity or density or both. delta_u^n (u^n-u^{n-1}) --> delta_u^{n+1} (u^{n+1}-u^n)
             for i in range(len(self.field_names)):
+                extra_field += [loaded_fields[i][self.seq_length-2].unsqueeze(dim=0)]         
+                loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1]
+                
+            extra_field = torch.cat(extra_field, dim=1)
+            
+            """
+            # This is the original code
+            for i in range(len(self.field_names)):
                 if self.mode == 'infer':
                     extra_field += [loaded_fields[i][self.original_seq_length-2].unsqueeze(dim=0)]         
                 loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1] #delta_u^n (u^n-u^{n-1})
                 # loaded_fields[0].shape (3-->2,1, 1024, 256) and loaded_fields[1].shape (3-->2,2, 1024, 256).--> final_shape after concatenation= (2, 3, 1024, 256) 
             if self.mode == 'infer':
                 extra_field = torch.cat(extra_field, dim=1)
+            """
 
         elif self.case_name=="2_hist_acc_in_acc_out":  # contains 4 (3+1 GT) timesteps of derivative of velocity or density or both.  delta_u^{n-1}, delta_u^n --> delta_u^{n+1} 
+            for i in range(len(self.field_names)):
+                extra_field += [loaded_fields[i][self.seq_length-2].unsqueeze(dim=0)]         
+                loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1]
+                
+            extra_field = torch.cat(extra_field, dim=1)
+
+            """
+            # This is the original code
             for i in range(len(self.field_names)):
                 if self.mode == 'infer':
                     extra_field += [loaded_fields[i][self.original_seq_length-2].unsqueeze(dim=0)]   
@@ -128,6 +145,7 @@ class CustomDataset(Dataset):
                 # here both input is two acceleraton and output is also accelerations hence dim_0=3
             if self.mode == 'infer':
                 extra_field = torch.cat(extra_field, dim=1)
+            """
         
         elif self.case_name=="acc_and_raw_in_raw_out": #contains 3 (2+1 GT) timesteps. delta_u^n (=u^n-u^{n-1}), u^n --> u^{n+1}    
             for i in range(len(self.field_names)): #selecting i-th entry of the loaded_fields list which is a field array like denstiy, velocity etc.
@@ -178,6 +196,12 @@ class CustomDataset(Dataset):
                 gt_tensor = gt_tensor[:,:3,:,:] #only the velocity and density fields are in the GT, exclude the grad_rho_x/rho and grad_rho_y/rho fields  
             gt_tensor_shape = (gt_tensor.shape[0] * gt_tensor.shape[1],) + gt_tensor.shape[2:]
             gt_tensor = gt_tensor.view(gt_tensor_shape)
+
+            """New code starts from here"""
+            # return extra_field for case 4 and 5
+            if self.case_name == "acc_in_acc_out" or self.case_name == "2_hist_acc_in_acc_out":
+                return input_tensor, gt_tensor, extra_field
+            """New code ends at here"""
 
         else: #for inference
             if (self.case_name=="raw_in_raw_out" or self.case_name=="3_hist_raw_in_raw_out"): #case 1 and case 2

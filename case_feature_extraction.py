@@ -37,6 +37,16 @@ import os
 import shutil
 import wandb
 import h5py
+import copy
+
+"""Copy from case_feature_extraction_infer.py"""
+def undo_acc_normalization(tensor, mean_info, std_info):
+    #undo the normalization
+    tensor[:,0,:,:] = tensor[:,0,:,:]*std_info['drho_dt'] + mean_info['drho_dt']
+    tensor[:,1,:,:] = tensor[:,1,:,:]*std_info['du_dt'] + mean_info['du_dt']
+    tensor[:,2,:,:] = tensor[:,2,:,:]*std_info['dv_dt'] + mean_info['dv_dt']
+    return tensor
+"""end of paste"""
 
 @hydra.main(version_base="1.3", config_path="./conf", config_name="config.yaml")
 def main(cfg: DictConfig):   
@@ -96,7 +106,7 @@ def main(cfg: DictConfig):
 
     #mask = torch.load(os.path.join(get_original_cwd(), "Dataset_KVS_200_0.2_re_100-500/obs_mask.pt"), weights_only=True)
     
-    h5_file_path = os.path.join(get_original_cwd(), "VS_Re_100_to_500_uniform_skip_20_256x64/inverted_mask_256x64.h5")
+    h5_file_path = os.path.join(get_original_cwd(), "VS_Re_100_to_500_uniform_skip_20_256x64_temp/inverted_mask_256x64.h5")
     with h5py.File(h5_file_path, 'r') as h5_file:
         mask = h5_file['mask'][:]
 
@@ -257,6 +267,95 @@ def main(cfg: DictConfig):
                     
                     total_loss += val_loss
                 
+                """New code starts from here"""
+                # plot one validation image just for sample 0 from the last batch
+                if cfg.data.case_name == "raw_in_raw_out":
+                    
+                    validator.compare(
+                        invar=(batch[0].to(dist.device)),
+                        target=(batch[1].to(dist.device)),
+                        prediction=(forward_eval(batch[0].to(dist.device))),
+                        step=pseudo_epoch
+                    )
+
+                elif cfg.data.case_name == "acc_in_acc_out":
+                    # extra_field stores the velocity u_(n-1)
+                    extra_field = batch[2]
+                    extra_field = extra_field.squeeze(dim=1).to("cuda")
+
+                    # output u'_(n) = u_(n) - u_(n-1)
+                    output = forward_eval(batch[0].to(dist.device))
+                    target = (batch[1]).to(dist.device)
+
+                    # undo normalization to acceleration
+                    output_renormalized = undo_acc_normalization(copy.deepcopy(output), cfg.data.normalization_mean, cfg.data.normalization_std)
+                    target_renormalized = undo_acc_normalization(copy.deepcopy(target), cfg.data.normalization_mean, cfg.data.normalization_std)
+
+                    # u_(n) = u'_(n) + u_(n-1)
+                    output_velocity = output_renormalized + extra_field
+                    target_velocity = target_renormalized + extra_field
+
+                    # normalize the output and target velocity
+                    output_velocity[:,0,:,:] = (output_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    output_velocity[:,1,:,:] = (output_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    output_velocity[:,2,:,:] = (output_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    target_velocity[:,0,:,:] = (target_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    target_velocity[:,1,:,:] = (target_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    target_velocity[:,2,:,:] = (target_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    # masking
+                    output_velocity = output_velocity*mask
+                    target_velocity = target_velocity*mask
+
+                    validator.compare(
+                        invar=(batch[0].to(dist.device)),
+                        target=target_velocity,
+                        prediction=output_velocity,
+                        step=pseudo_epoch
+                    )
+
+                elif cfg.data.case_name=="2_hist_acc_in_acc_out":
+                    # extra_field stores the velocity u_(n-1)
+                    extra_field = batch[2]
+                    extra_field = extra_field.squeeze(dim=1).to("cuda")
+
+                    # output u'_(n) = u_(n) - u_(n-1)
+                    output = forward_eval(batch[0].to(dist.device))
+                    target = (batch[1]).to(dist.device)
+
+                    # undo normalization to acceleration
+                    output_renormalized = undo_acc_normalization(copy.deepcopy(output), cfg.data.normalization_mean, cfg.data.normalization_std)
+                    target_renormalized = undo_acc_normalization(copy.deepcopy(target), cfg.data.normalization_mean, cfg.data.normalization_std)
+
+                    # u_(n) = u'_(n) + u_(n-1)
+                    output_velocity = output_renormalized + extra_field
+                    target_velocity = target_renormalized + extra_field
+
+                    # normalize the output and target velocity
+                    output_velocity[:,0,:,:] = (output_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    output_velocity[:,1,:,:] = (output_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    output_velocity[:,2,:,:] = (output_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    target_velocity[:,0,:,:] = (target_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    target_velocity[:,1,:,:] = (target_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    target_velocity[:,2,:,:] = (target_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    # masking
+                    output_velocity = output_velocity*mask
+                    target_velocity = target_velocity*mask
+
+                    validator.compare(
+                        invar=(batch[0].to(dist.device)),
+                        target=target_velocity,
+                        prediction=output_velocity,
+                        step=pseudo_epoch
+                    )      
+                """New code ends at here"""
+                
+
+                """
+                # This is the original code
                 #plotting one validation image per epoch (just for sample 0 from the last batch)
                 validator.compare(
                         invar=(batch[0].to(dist.device)),
@@ -264,6 +363,8 @@ def main(cfg: DictConfig):
                         prediction=(forward_eval(batch[0].to(dist.device))),
                         step=pseudo_epoch
                     )
+                """
+
                 logger.log_epoch({"Validation error": total_loss / step}) #validation error per epoch
                 
                 #save the checkpoint with the best validation error inside the folder "best" to be used in inference.
