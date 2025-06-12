@@ -1,0 +1,7 @@
+output_name: FNO_DS
+timestamp: ${now:%Y%m%d}-${now:%H%M%S}
+
+logging: 
+  wandb: True  
+  wandb_project: "feature_engg_tz_kvs_dataset"
+  wandb_entity: "genufasd"

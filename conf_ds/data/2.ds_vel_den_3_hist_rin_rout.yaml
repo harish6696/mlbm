@@ -1,0 +1,10 @@
+base_folder: DS_dataset/train
+num_channels: 3
+mode: train
+case_name: 3_hist_raw_in_raw_out
+normalization_mean: {rho: 0.9999999999985899, u: 1.3264991987080778e-12, v: 1.3658537927325758e-12,  Re: 20000.0}
+normalization_std:  {rho: 0.006069640378573008, u: 0.299184214200645, v: 0.268223073528541, Re: 6324.555320336759}
+field_names: ['density', 'velocity']
+param_names: ['Re']
+filter_frame: [[1, 1000]]
+sequence_info: [[4, 1]] #[[num_timesteps (including the GT), sequence_stride]]

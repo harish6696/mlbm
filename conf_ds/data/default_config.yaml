@@ -1,0 +1,34 @@
+#########to be updated#########
+base_folder: DS_dataset/infer
+num_channels: 3
+mode: train
+field_names: ['velocity']
+param_names: ['Re']
+filter_frame: [(0, -1)]
+sequence_info: [(1, 1)]
+normalization_mean: {drho_dt: -2.8539623836670427e-15, du_dt: -9.940363957256322e-15, dv_dt: 5.056572445054435e-16, rho: 0.9999999999985899, u: 1.3264991987080778e-12, v: 1.3658537927325758e-12, Re: 20000.0}
+normalization_std:  {drho_dt: 0.00011951701097913717, du_dt: 0.0025470519915768083, dv_dt: 0.0019200465213900703, rho: 0.006069640378573008, u: 0.299184214200645, v: 0.268223073528541,  Re: 6324.555320336759}
+
+
+
+# base_folder: Dataset_KVS_200_0.2_re_100-500/infer
+# mode: infer
+# model_path: runs/FNOKarman_noRepred/20240921-115504_raw_in_raw_out_['density', 'velocity']_['Re']
+# num_channels: 4
+# case_name: raw_in_raw_out
+# normalization_mean:
+# - 1.130355    # density mean
+# - 0.029989    # velocity_x mean
+# - 0.0         # velocity_y mean
+# - 300         # Re mean
+# normalization_std:
+# - 0.05823061  # density std
+# - 0.01375248  # velocity_x std
+# - 0.01020263  # velocity_y std
+# - 81.6496581  # Re std
+# field_names: ['density', 'velocity']
+# param_names: ['Re']
+# param_values: [[100, 500]]
+# filter_frame: [[350, 1000]]
+# sequence_info: [[2, 1]] #[[num_timesteps (including the GT), sequence_stride]]
+# n_rollout_steps: 10 

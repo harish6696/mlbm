@@ -1,0 +1,10 @@
+defaults:
+  - data: default_config
+  - arch: default_arch
+  - output: default_output
+  - scheduler: default_scheduler
+  - train: default_training
+  - hydra: default_hydra_config
+  - _self_
+
+gpu_id: 0
