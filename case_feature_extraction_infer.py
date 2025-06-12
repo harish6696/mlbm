@@ -49,6 +49,7 @@ def main(cfg: DictConfig):
 
     LaunchLogger.initialize()  
 
+    
     #load the best model
     trained_model_path = os.path.join(get_original_cwd(), os.path.join(cfg.data.model_path,"best"))
     #load the file starting with FourrierNeuralOperator inside the trained_model_path
@@ -60,9 +61,10 @@ def main(cfg: DictConfig):
     print("Model loaded successfully")
     # put the model in evaluation mode
     model_inf.eval()
+    
 
     #mask = torch.load(os.path.join(get_original_cwd(), "Dataset_KVS_200_0.2_re_100-500/obs_mask.pt"), weights_only=True)
-    h5_file_path = os.path.join(get_original_cwd(), "VS_Re_100_to_500_uniform_skip_20_256x64/inverted_mask_256x64.h5")
+    h5_file_path = os.path.join(get_original_cwd(), "VS_Re_100_to_500_uniform_skip_20_256x64_temp/inverted_mask_256x64.h5")
     with h5py.File(h5_file_path, 'r') as h5_file:
         mask = h5_file['mask'][:]
 
@@ -225,8 +227,8 @@ def main(cfg: DictConfig):
                     output_renormalized = undo_acc_normalization(copy.deepcopy(output), cfg.data.normalization_mean, cfg.data.normalization_std)
                     target_tensor_renormalized = undo_acc_normalization(copy.deepcopy(target_tensor[:,t,:,:,:]), cfg.data.normalization_mean, cfg.data.normalization_std)                    
                     
-                    if(t==0):#converting from differences(accelerations) to actual field data
-                        output_velocity = output_renormalized+extra_field 
+                    if(t==0):#converting from differences(accelerations) to actual field data (extra_field is in physical units)
+                        output_velocity = output_renormalized+extra_field #addition happening in physical units
                         target_tensor_velocity = target_tensor_renormalized+extra_field
                     else:
                         output_velocity = output_renormalized+output_velocity
@@ -235,7 +237,7 @@ def main(cfg: DictConfig):
                     output = output*mask
                     target_tensor[:,t,:,:,:] = target_tensor[:,t,:,:,:]*mask
 
-                    #normalize the output and target_tensor_velocity
+                    #normalize the output and target_tensor_velocity for loss computation
                     output_velocity[:,0,:,:] = (output_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
                     output_velocity[:,1,:,:] = (output_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
                     output_velocity[:,2,:,:] = (output_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
@@ -247,11 +249,11 @@ def main(cfg: DictConfig):
                     output_velocity = output_velocity*mask
                     target_tensor_velocity = target_tensor_velocity*mask
 
-                    step_loss = MSELoss()(output_velocity, target_tensor_velocity) 
+                    step_loss = MSELoss()(output_velocity, target_tensor_velocity) #loss always computed with the normalized values.
 
-                    validator.compare(
+                    validator.compare(  #all values psassed to compare are normalized. before plotting, the variables are brought to physical units by undo_normalization
                             invar=input_tensor,
-                            target=target_tensor_velocity, #these are already renormalized
+                            target=target_tensor_velocity,
                             prediction=output_velocity,
                             step=t,
                         )
