@@ -1,0 +1,465 @@
+import torch
+import numpy as np
+from torch.utils.data import Dataset
+from pathlib import Path
+from typing import List, Tuple, Dict
+import os
+from hydra.utils import get_original_cwd
+import h5py
+
+from density_grad import get_density_grad
+##Datasets have arrived from the folder "final_dataset_for_train". Now build the CustomDataset
+
+class CustomDataset(Dataset):
+    def __init__(self, base_folder: str, 
+                 field_names: List[str], 
+                 param_names: List[str], 
+                 case_name: str,
+                 filter_frame:List[Tuple[int,int]]=[], 
+                 sequence_info: List[Tuple[int,int]]=[],
+                 mode:str='train',  
+                 n_rollout_steps: int=1,
+                 **kwargs): #while training n_rollout_steps=1
+        
+        self.case_name = case_name
+        self.transform = None
+        self.data_dir = base_folder 
+        self.field_names = field_names  #velocity, density or both
+        self.param_names = param_names  #Re, Ma or both
+        self.min_frame = filter_frame[0][0]
+        self.max_frame = filter_frame[0][1]
+        self.seq_length= sequence_info[0][0] # includes n-1 historic info and 1 current info (GT)
+        self.seq_stride = sequence_info[0][1] # stride between sequences
+        self.mode = mode
+        self.data_paths = []
+        # self.obs_mask = kwargs["obs_mask"].to(dtype=torch.int32)
+        ######################################
+        ### Stage 1 : Generate data paths list
+        ######################################
+        top_dir= os.path.join(get_original_cwd(), self.data_dir)
+        top_dir_folders= os.listdir(os.path.join(get_original_cwd(), self.data_dir))
+        top_dir_folders.sort()
+
+        if self.mode == 'infer':
+            self.original_seq_length = self.seq_length
+        
+        self.seq_length = self.seq_length + n_rollout_steps - 1 #-1 is to remove the GT (as there is no GT in inference mode)
+
+        for dir in top_dir_folders: # top_dir_folders has Re_12000, Re_14000, Re_18000, Re_20000, Re_22000, Re_26000, Re_28000.
+            cwd=os.path.join(top_dir, dir) # need this because hydra changes the cwd
+            for seq_start in range(self.min_frame, self.max_frame, self.seq_length*self.seq_stride):
+                valid_seq = True
+                for frame in range(seq_start, seq_start + (self.seq_length*self.seq_stride), self.seq_stride): 
+                    # discard incomplete sequences at simulation end
+                    if seq_start+self.seq_length*self.seq_stride > self.max_frame:
+                        valid_seq = False
+                        break
+
+                    for field in self.field_names: #this loop is just to check if the file exists or not
+                        current_field = os.path.join(cwd, "%s_%06d.h5" % (field, frame))
+                        #current_field = os.path.join(cwd, "%s_%04d.pt" % (field, frame))
+                        
+                        if not os.path.isfile(current_field):
+                            raise FileNotFoundError("Could not load %s file: %s" % (field, current_field))
+
+                # incomplete sequence means there are no more frames left
+                if not valid_seq:
+                    break
+                #data_paths doesnt have density or velocity in the name, just the paths
+                self.data_paths.append((cwd, seq_start, seq_start + self.seq_length*self.seq_stride, self.seq_stride))
+
+        print("Dataset Length: %d\n" % len(self.data_paths))
+
+    def __len__(self):
+        return len(self.data_paths)
+
+    def __getitem__(self, idx):
+        #only load the data for the current idx from the data_paths list. (Slow but memory efficient)
+        base_path, seq_start, seq_end, seq_stride = self.data_paths[idx]
+
+        loaded = {} #empty dictionary
+        for field in self.field_names:
+            loaded[field] = []
+
+        for frame in range(seq_start, seq_end, seq_stride):
+            for field in self.field_names:
+                #loaded_arr = torch.load(os.path.join(base_path, "%s_%04d.pt" % (field, frame)), weights_only=True)
+                file_path = os.path.join(base_path, f"{field}_{frame:06d}.h5")
+                with h5py.File(file_path, 'r') as h5_file:
+                    data = h5_file[field][:]
+
+                loaded_arr = torch.tensor(data, dtype=torch.float32)
+                loaded[field] += [loaded_arr.to(torch.float32)]       
+
+        loaded_fields = []
+        extra_field = []
+        for i, field in enumerate(self.field_names):
+            loaded_fields += [torch.stack(loaded[field], dim=0)]  
+            
+        #loaded_fields[0].shape (3, 1, 256, 256) i.e density, loaded_fields[1].shape (3, 2, 256, 256) i.e. velocity,
+        #loaded_fields is a list with each entry correspondin to a field- density, velocity etc.
+        ###########################################################################
+        ### Stage 2 : Feature Engineering (Modifiy the data before normalizing it)
+        ###########################################################################       
+        if self.case_name=="raw_in_raw_out": #contains 2 (1+1 GT) timesteps of velocity or density or both. u^n --> u^{n+1}
+            pass #nothing to be modified, just normalize the data in the next step
+
+        elif self.case_name=="3_hist_raw_in_raw_out":  #contains 4 (3+1 GT) timesteps of velocity or density or both. u^{n-2}, u^{n-1}, u^n --> u^{n+1}
+            pass #nothing to be modified, just normalize the data in the next step
+        
+        # This case is not applicable to double shear (DS).
+        elif self.case_name=="raw_and_grad_rho_in_raw_out": #contains 2 (1+1 GT) timesteps of velocity or density or both. u^n, grad_rho^n --> u^{n+1}
+            loaded_fields += [get_density_grad(self.obs_mask.repeat(loaded_fields[0].shape[0],1,1,1), loaded_fields[0])] #calculating grad_rho of the gt as well even though not needed
+
+        elif self.case_name=="acc_in_acc_out": #contains 3 (2+1 GT) timesteps of derivative of velocity or density or both. delta_u^n (u^n-u^{n-1}) --> delta_u^{n+1} (u^{n+1}-u^n)
+            for i in range(len(self.field_names)):
+                extra_field += [loaded_fields[i][self.seq_length-2].unsqueeze(dim=0)]         
+                loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1]
+                
+            extra_field = torch.cat(extra_field, dim=1)
+            
+            """
+            # This is the original code
+            for i in range(len(self.field_names)):
+                if self.mode == 'infer':
+                    extra_field += [loaded_fields[i][self.original_seq_length-2].unsqueeze(dim=0)]         
+                loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1] #delta_u^n (u^n-u^{n-1})
+                # loaded_fields[0].shape (3-->2,1, 1024, 256) and loaded_fields[1].shape (3-->2,2, 1024, 256).--> final_shape after concatenation= (2, 3, 1024, 256) 
+            if self.mode == 'infer':
+                extra_field = torch.cat(extra_field, dim=1)
+            """
+
+        elif self.case_name=="2_hist_acc_in_acc_out":  # contains 4 (3+1 GT) timesteps of derivative of velocity or density or both.  delta_u^{n-1}, delta_u^n --> delta_u^{n+1} 
+            for i in range(len(self.field_names)):
+                extra_field += [loaded_fields[i][self.seq_length-2].unsqueeze(dim=0)]         
+                loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1]
+                
+            extra_field = torch.cat(extra_field, dim=1)
+
+            """
+            # This is the original code
+            for i in range(len(self.field_names)):
+                if self.mode == 'infer':
+                    extra_field += [loaded_fields[i][self.original_seq_length-2].unsqueeze(dim=0)]   
+                loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1] #delta_u^n (u^n-u^{n-1})
+                # loaded_fields[0].shape (4-->3,1, 1024, 256) and loaded_fields[1].shape (4-->3, 2, 1024, 256).--> final_shape after concatenation= (3, 3, 1024, 256)
+                # here both input is two acceleraton and output is also accelerations hence dim_0=3
+            if self.mode == 'infer':
+                extra_field = torch.cat(extra_field, dim=1)
+            """
+        
+        elif self.case_name=="acc_and_raw_in_raw_out": #contains 3 (2+1 GT) timesteps. delta_u^n (=u^n-u^{n-1}), u^n --> u^{n+1}    
+            for i in range(len(self.field_names)): #selecting i-th entry of the loaded_fields list which is a field array like denstiy, velocity etc.
+                loaded_fields[i][0] = loaded_fields[i][1] - loaded_fields[i][0] #other entries of the loaded_fields[i] array are already in the form of u^n 
+        
+        # new case 7 for raw in and acc out.
+        elif self.case_name=="raw_in_acc_out":
+            for i in range(len(self.field_names)):
+                # contains 2 (1+1 GT) timesteps of velocity and density. u^n --> delta u^n (= u^{n+1} - u^n)
+                extra_field += [loaded_fields[i][self.seq_length-1].unsqueeze(dim=0)]         
+                loaded_fields[i][1] = loaded_fields[i][1] - loaded_fields[i][0]
+            
+            extra_field = torch.cat(extra_field, dim=1)
+        
+        #Condition it with the simulation parameter
+        if 'Re' in self.param_names:
+            Re = int(base_path.split('_')[-1]) #Extract the Re value from the path
+            Re_tensor = torch.tensor(Re, dtype=torch.float32)
+        ###########OTHER SIMULATION PARAMETERS like 'Ma' CAN BE ADDED HERE#############
+
+        sample= torch.cat(loaded_fields, dim=1) #data.shape (3, 4, 1024, 256) i.e. density(1), velocity(2), Re(1) as an example. 3 are the frames and 4 are the fields and params
+
+        ######### Z-Normalization after feature engineering #########
+        if self.transform and self.mode  == 'train':
+            if 'Re' in self.param_names:
+                sample, Re_tensor = self.transform(sample, Re=Re_tensor)
+            else:
+                sample = self.transform(sample)
+
+        elif self.transform and self.mode == 'infer' and (self.case_name=="2_hist_acc_in_acc_out" or self.case_name=="acc_in_acc_out"):
+            if 'Re' in self.param_names:
+                sample, Re_tensor, extra_field_temp = self.transform(sample, Re=Re_tensor, extra_field=extra_field)
+            else:
+                # extra_field is not normalized
+                # When Re is applied, this will not run either
+                sample, extra_field= self.transform(sample, extra_field=extra_field) #not checked if this works or not
+
+        elif self.transform and self.mode == 'infer' and not (self.case_name=="2_hist_acc_in_acc_out" or self.case_name=="acc_in_acc_out"):
+            if 'Re' in self.param_names:
+                sample, Re_tensor = self.transform(sample, Re=Re_tensor)
+            else:
+                sample = self.transform(sample)
+
+        else:
+            print("Normalization not done")
+        ############################################################################################################
+        if self.mode == 'train': #one step prediction
+            #split sample into input and target. sample for case 2 having 3 historic velocities and 1 GT velocity: sample.shape (4, 4, 1024, 256)
+            #input_tensor.shape (3, 4, 1024, 256) and gt_tensor.shape (1, 4, 1024, 256), now reshape them to (12, 1024, 256) and (4, 1024, 256) respectively to feed into the model.
+            input_tensor = sample[:-1] 
+            input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+            input_tensor = input_tensor.view(input_tensor_shape)
+            if self.param_names!=[]:
+                Re_tensor_expanded = Re_tensor.expand(1, input_tensor.shape[1], input_tensor.shape[2])
+                input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
+            
+            gt_tensor = sample[-1:]
+
+            if self.case_name == "raw_and_grad_rho_in_raw_out": #for case 3
+                gt_tensor = gt_tensor[:,:3,:,:] #only the velocity and density fields are in the GT, exclude the grad_rho_x/rho and grad_rho_y/rho fields  
+            
+            gt_tensor_shape = (gt_tensor.shape[0] * gt_tensor.shape[1],) + gt_tensor.shape[2:]
+            gt_tensor = gt_tensor.view(gt_tensor_shape)
+
+            """New code starts from here"""
+            # return extra_field for case 4 and 5
+            if self.case_name == "acc_in_acc_out" or self.case_name == "2_hist_acc_in_acc_out" or self.case_name == "raw_in_acc_out":
+                # extra_field is unnormalized
+                return input_tensor, gt_tensor, extra_field
+            """New code ends at here"""
+
+        else: #for inference
+            if (self.case_name=="raw_in_raw_out" or self.case_name=="3_hist_raw_in_raw_out"): #case 1 and case 2
+                input_tensor = sample[0:self.original_seq_length-1]
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+                    
+                if self.param_names!=[]:
+                    Re_tensor_expanded = Re_tensor.expand(1, input_tensor.shape[1], input_tensor.shape[2])
+                    input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
+
+                gt_tensor = sample[self.original_seq_length-1:]
+
+            elif self.case_name=="raw_and_grad_rho_in_raw_out": #case 3
+                input_tensor = sample[0:self.original_seq_length-1]
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+                    
+                if self.param_names!=[]:
+                    Re_tensor_expanded = Re_tensor.expand(1, input_tensor.shape[1], input_tensor.shape[2])
+                    input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
+
+                gt_tensor = sample[self.original_seq_length-1:]
+                gt_tensor = gt_tensor[:,:3,:,:] #only the velocity and density fields are in the GT, exclude the grad_rho_x/rho and grad_rho_y/rho fields
+
+            elif (self.case_name=="acc_in_acc_out" or self.case_name=="2_hist_acc_in_acc_out"): #case 4 and case 5
+                #sample itself has the difference of the fields
+                input_tensor = sample[0:self.original_seq_length-2]
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+
+                if self.param_names!=[]:
+                    Re_tensor_expanded = Re_tensor.expand(1, input_tensor.shape[1], input_tensor.shape[2])
+                    input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
+
+                gt_tensor = sample[self.original_seq_length-2:]
+
+                return input_tensor, gt_tensor, extra_field
+
+            elif self.case_name=="acc_and_raw_in_raw_out": #case 6
+                input_tensor = sample[0:self.original_seq_length-1] #sample[0] has the difference_info and sample[1] has the raw data
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+
+                if self.param_names!=[]:
+                    Re_tensor_expanded = Re_tensor.expand(1, input_tensor.shape[1], input_tensor.shape[2])
+                    input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
+
+                gt_tensor = sample[self.original_seq_length-1:] #only has raw data u^{n+1}
+
+            elif self.case_name=="raw_in_acc_out": # case 7
+                input_tensor = sample[0:self.original_seq_length-1] #sample[0] has the raw and sample[1] has the acc data
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
+
+                if self.param_names!=[]:
+                    Re_tensor_expanded = Re_tensor.expand(1, input_tensor.shape[1], input_tensor.shape[2])
+                    input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
+
+                gt_tensor = sample[self.original_seq_length-1:] #only has acc data delta u^n (= u^{n+1} - u^n)
+
+                return input_tensor, gt_tensor, extra_field
+
+            else:
+                raise ValueError("Case name not recognized")
+
+        return input_tensor, gt_tensor
+
+class DataTransform(object):
+
+    def __init__(self, mean_info:Dict, std_info:Dict, field_names:str, param_names:str, case_name:str, mode:str='train'):
+        self.mean = mean_info
+        self.std = std_info
+        self.field_names = field_names
+        self.param_names = param_names
+        self.case_name = case_name
+        self.mode = mode
+
+    def __call__(self, sample, **kwargs):
+        """
+        # normalization to std. normal distr. with zero mean and unit std via statistics from whole dataset
+        # ORDER (fields): density, velocity_x, velocity_y, pressure, Re, Ma
+        # filter_list=[]
+        # if "density" in self.field_names:
+        #     filter_list += [0]
+        # if "velocity" in self.field_names:
+        #     filter_list += [1,2]
+        # if "pressure" in self.field_names:
+        #     filter_list += [3]
+        # if "Re" in self.param_names:
+        #     filter_list += [4]
+        # if "Ma" in self.param_names:
+        #     filter_list += [5]
+
+        #all_filter = torch.tensor(filter_list)
+        #param_filter = all_filter[-len(self.param_names):]
+        #write an assert to check of all the data is normalized i.e. all values of sample are between -1 and 1
+
+        #mean_info =self.mean[all_filter].reshape((1, -1, 1, 1)) #mean_info.shape (1, 4, 1, 1) for velocity (2), density(1), Re(1)
+        
+        sample_copy = sample.clone()
+        
+        if self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['density','velocity']:
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]     #normalizing the density derivative
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]     #normalizing the x-velocity derivative (acc_x)
+            sample[0,2,:,:] = (sample[0,2,:,:] - self.mean[2]) / self.std[2]     #normalizing the y-velocity derivative (acc_y)
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean[3]) / self.std[3]   #normalizing density
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean[4]) / self.std[4]   #normalizing x-velocity
+            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean[5]) / self.std[5]   #normalizing y-velocity
+            if self.param_names!=[]:
+                sample[0:,3,:,:] = (sample[0:,3,:,:] - self.mean[6]) / self.std[6] #normalizing Re
+        
+        elif self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['velocity']:
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean[0]) / self.std[0]    #normalizing the x-velocity derivative (acc_x)
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean[1]) / self.std[1]   #normalizing the y-velocity derivative (acc_y)
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean[2]) / self.std[2] #normalizing x-velocity (1:3 means 1 and 2 included--> normalizing x-vel of input and gt)
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean[3]) / self.std[3] #normalizing y-velocity
+            if self.param_names!=[]:
+                sample[0:,2,:,:] = (sample[0:,2,:,:] - self.mean[4]) / self.std[4]
+
+        else:
+            #if self.param_names is empty then (to be fixed if number of parameters are more than 1)
+            if self.param_names==[]:
+                mean=self.mean.reshape((1, -1, 1, 1))
+                std = self.std.reshape((1, -1, 1, 1))
+                sample = (sample - mean[:,:-1,:,:]) / std[:,:-1,:,:]
+            else:
+                mean=self.mean.reshape((1, -1, 1, 1)) #mean.shape (1, 4, 1, 1) for density(1), velocity(2) and Re(1)
+                std = self.std.reshape((1, -1, 1, 1)) 
+                sample = (sample - mean) / std
+        """
+        ##################################################################################################################################################
+        #### Case 1 and Case 2 both only have raw data in the input and output
+
+        if self.case_name=="raw_in_raw_out" or self.case_name=="3_hist_raw_in_raw_out" and self.field_names==['density','velocity']:
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['rho']) / self.std['rho']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['u']) / self.std['u']
+            sample[:,2,:,:] = (sample[:,2,:,:] - self.mean['v']) / self.std['v']
+            
+            """         
+            elif self.case_name=="raw_in_raw_out" or self.case_name=="3_hist_raw_in_raw_out" and self.field_names==['velocity']:
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['u']) / self.std['u']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['v']) / self.std['v']
+            if self.param_names!=[]:
+                Re = args[0]
+                Re = (Re- self.mean['Re']) / self.std['Re'] 
+            """
+
+        #### Case 3 has both raw data and gradient of density in the input and only raw data in the output
+        elif self.case_name=="raw_and_grad_rho_in_raw_out" and self.field_names==['density','velocity']:
+            #not implemented yet
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['rho']) / self.std['rho']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['u']) / self.std['u']
+            sample[:,2,:,:] = (sample[:,2,:,:] - self.mean['v']) / self.std['v']
+            sample[:,3,:,:] = (sample[:,3,:,:] - self.mean['grad_rho_x/_rho']) / self.std['grad_rho_x/_rho']
+            sample[:,4,:,:] = (sample[:,4,:,:] - self.mean['grad_rho_y/_rho']) / self.std['grad_rho_y/_rho']            
+            
+        #### Case 4 and Case 5 both have acceleration in the input and output
+        elif self.case_name=="acc_in_acc_out" or self.case_name=="2_hist_acc_in_acc_out" and self.field_names==['density','velocity']:
+            sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['drho_dt']) / self.std['drho_dt']
+            sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[:,2,:,:] = (sample[:,2,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+
+            if self.mode == 'infer':
+                # extra_field is untouched, hence not normalized.
+                extra_field = kwargs['extra_field']
+                # extra_field[:,0,:,:] = (extra_field[:,0,:,:] - self.mean['rho']) / self.std['rho']
+                # extra_field[:,1,:,:] = (extra_field[:,1,:,:] - self.mean['u']) / self.std['u']
+                # extra_field[:,2,:,:] = (extra_field[:,2,:,:] - self.mean['v']) / self.std['v']
+                
+                if self.param_names!=[]:
+                    Re = kwargs['Re']
+                    Re = (Re- self.mean['Re']) / self.std['Re']
+                    # for case 4 and 5, sample, Re, extra_field (untouched) are already returned
+                    return sample, Re, extra_field
+                else:
+                    return sample, extra_field
+
+            """
+            elif self.case_name=="acc_in_acc_out" or self.case_name=="2_hist_acc_in_acc_out" and self.field_names==['velocity']:
+                sample[:,0,:,:] = (sample[:,0,:,:] - self.mean['du_dt']) / self.std['du_dt']
+                sample[:,1,:,:] = (sample[:,1,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+                if self.param_names!=[]:
+                    Re = args[0]
+                    Re = (Re- self.mean['Re']) / self.std['Re'] 
+            """
+
+        #### Case 6 has both acceleration and raw data in the input and only raw data in the output
+        elif self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['density','velocity']:
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean['drho_dt']) / self.std['drho_dt'] #idx 0 is the acceleration of density and velocity.
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[0,2,:,:] = (sample[0,2,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean['rho']) / self.std['rho'] #idx 1 onwards it is raw data
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean['u']) / self.std['u']
+            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean['v']) / self.std['v']
+
+            """
+            elif self.case_name=="acc_and_raw_in_raw_out" and self.field_names==['velocity']:
+                sample[0,0,:,:] = (sample[0,0,:,:] - self.mean['du_dt']) / self.std['du_dt']
+                sample[0,1,:,:] = (sample[0,1,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+                sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean['u']) / self.std['u']
+                sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean['v']) / self.std['v']
+                if self.param_names!=[]:
+                    Re = args[0]
+                    Re = (Re- self.mean['Re']) / self.std['Re']
+            """
+
+        # case 7 has raw data in the input and acceleration data in the output
+        elif self.case_name == "raw_in_and_acc_out" and self.field_names == ['density','velocity']:
+            # for input, idx 0 is the raw value of density and velocity.
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean['rho']) / self.std['rho'] 
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean['u']) / self.std['u']
+            sample[0,2,:,:] = (sample[0,2,:,:] - self.mean['v']) / self.std['v']
+
+            # for output, idx1 is the acceleration of density and velocity
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean['drho_dt']) / self.std['drho_dt'] 
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+
+            if self.mode == 'infer':
+                # extra_field is untouched, hence not normalized.
+                extra_field = kwargs['extra_field']
+                # extra_field[:,0,:,:] = (extra_field[:,0,:,:] - self.mean['rho']) / self.std['rho']
+                # extra_field[:,1,:,:] = (extra_field[:,1,:,:] - self.mean['u']) / self.std['u']
+                # extra_field[:,2,:,:] = (extra_field[:,2,:,:] - self.mean['v']) / self.std['v']
+                
+                if self.param_names!=[]:
+                    Re = kwargs['Re']
+                    Re = (Re- self.mean['Re']) / self.std['Re']
+                    # for case 4 and 5, sample, Re, extra_field (untouched) are already returned
+                    return sample, Re, extra_field
+                else:
+                    return sample, extra_field
+
+        else:
+            print("Case name not recognized")
+            raise NotImplementedError()
+        
+        if self.param_names!=[]:
+            
+            Re = kwargs['Re']
+            Re = (Re- self.mean['Re']) / self.std['Re']
+            return sample, Re
+        
+        
+        return sample
