@@ -40,9 +40,10 @@ class CustomDataset(Dataset):
         top_dir_folders= os.listdir(os.path.join(get_original_cwd(), self.data_dir))
         top_dir_folders.sort()
 
-        if self.mode == 'infer':
-            self.original_seq_length = self.seq_length
+        # if self.mode == 'infer':
+            # self.original_seq_length = self.seq_length
         
+        self.original_seq_length = self.seq_length
         self.seq_length = self.seq_length + n_rollout_steps - 1 #-1 is to remove the GT (as there is no GT in inference mode)
 
         for dir in top_dir_folders: #top_dir_folders has Re_200, Re_300 and Re_400.
@@ -112,7 +113,7 @@ class CustomDataset(Dataset):
             
         elif self.case_name=="acc_in_acc_out": #contains 3 (2+1 GT) timesteps of derivative of velocity or density or both. delta_u^n (u^n-u^{n-1}) --> delta_u^{n+1} (u^{n+1}-u^n)
             for i in range(len(self.field_names)):
-                extra_field += [loaded_fields[i][self.seq_length-2].unsqueeze(dim=0)]         
+                extra_field += [loaded_fields[i][self.original_seq_length-2].unsqueeze(dim=0)]         
                 loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1]
                 
             extra_field = torch.cat(extra_field, dim=1)
@@ -130,8 +131,8 @@ class CustomDataset(Dataset):
 
         elif self.case_name=="2_hist_acc_in_acc_out":  # contains 4 (3+1 GT) timesteps of derivative of velocity or density or both.  delta_u^{n-1}, delta_u^n --> delta_u^{n+1} 
             for i in range(len(self.field_names)):
-                extra_field += [loaded_fields[i][self.seq_length-2].unsqueeze(dim=0)]         
-                loaded_fields[i] = loaded_fields[i][1:] - loaded_fields[i][:-1]
+                extra_field += [loaded_fields[i][self.original_seq_length-2].unsqueeze(dim=0)]         
+                loaded_fields[i][1:] = loaded_fields[i][1:] - loaded_fields[i][:-1]
                 
             extra_field = torch.cat(extra_field, dim=1)
 
@@ -150,7 +151,16 @@ class CustomDataset(Dataset):
         elif self.case_name=="acc_and_raw_in_raw_out": #contains 3 (2+1 GT) timesteps. delta_u^n (=u^n-u^{n-1}), u^n --> u^{n+1}    
             for i in range(len(self.field_names)): #selecting i-th entry of the loaded_fields list which is a field array like denstiy, velocity etc.
                 loaded_fields[i][0] = loaded_fields[i][1] - loaded_fields[i][0] #other entries of the loaded_fields[i] array are already in the form of u^n 
-                
+        
+        elif self.case_name=="raw_in_acc_out":
+            for i in range(len(self.field_names)):
+                # contains 2 (1+1 GT) timesteps of velocity and density. u^n --> delta u^n (= u^{n+1} - u^n)
+                extra_field += [loaded_fields[i][self.original_seq_length-2].unsqueeze(dim=0)] # takes the 0th velocity         
+                # extra_field only stores the information of u_0 
+                loaded_fields[i][1:] = loaded_fields[i][1:] - loaded_fields[i][:-1]
+
+            extra_field = torch.cat(extra_field, dim=1)
+        
         #Condition it with the simulation parameter
         if 'Re' in self.param_names:
             Re = int(base_path.split('_')[-1]) #Extract the Re value from the path
@@ -166,13 +176,13 @@ class CustomDataset(Dataset):
             else:
                 sample = self.transform(sample)
 
-        elif self.transform and self.mode == 'infer' and (self.case_name=="2_hist_acc_in_acc_out" or self.case_name=="acc_in_acc_out"):
+        elif self.transform and self.mode == 'infer' and (self.case_name=="2_hist_acc_in_acc_out" or self.case_name=="acc_in_acc_out" or self.case_name=="raw_in_acc_out"):
             if 'Re' in self.param_names:
                 sample, Re_tensor, extra_field_temp = self.transform(sample, Re=Re_tensor, extra_field=extra_field)
             else:
                 sample, extra_field= self.transform(sample, extra_field=extra_field) #not checked if this works or not
 
-        elif self.transform and self.mode == 'infer' and not (self.case_name=="2_hist_acc_in_acc_out" or self.case_name=="acc_in_acc_out"):
+        elif self.transform and self.mode == 'infer' and not (self.case_name=="2_hist_acc_in_acc_out" or self.case_name=="acc_in_acc_out" or self.case_name=="raw_in_acc_out"):
             if 'Re' in self.param_names:
                 sample, Re_tensor = self.transform(sample, Re=Re_tensor)
             else:
@@ -199,7 +209,7 @@ class CustomDataset(Dataset):
 
             """New code starts from here"""
             # return extra_field for case 4 and 5
-            if self.case_name == "acc_in_acc_out" or self.case_name == "2_hist_acc_in_acc_out":
+            if self.case_name == "acc_in_acc_out" or self.case_name == "2_hist_acc_in_acc_out" or self.case_name == "raw_in_acc_out":
                 return input_tensor, gt_tensor, extra_field
             """New code ends at here"""
 
@@ -251,7 +261,20 @@ class CustomDataset(Dataset):
                     input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
 
                 gt_tensor = sample[self.original_seq_length-1:] #only has raw data u^{n+1}
+            
+            elif self.case_name=="raw_in_acc_out": # case 7
+                input_tensor = sample[0:self.original_seq_length-1] # sample[0] has the raw value
+                input_tensor_shape = (input_tensor.shape[0] * input_tensor.shape[1],) + input_tensor.shape[2:]
+                input_tensor = input_tensor.view(input_tensor_shape)
 
+                if self.param_names!=[]:
+                    Re_tensor_expanded = Re_tensor.expand(1, input_tensor.shape[1], input_tensor.shape[2])
+                    input_tensor = torch.cat((input_tensor, Re_tensor_expanded), dim=0)
+
+                gt_tensor = sample[self.original_seq_length-1:] # only has acc data delta u^n (= u^{n+1} - u^n)
+
+                return input_tensor, gt_tensor, extra_field
+            
             else:
                 raise ValueError("Case name not recognized")
 
@@ -394,6 +417,32 @@ class DataTransform(object):
                     Re = (Re- self.mean['Re']) / self.std['Re']
             """
 
+        # case 7 has raw data in the input and acceleration data in the output
+        elif self.case_name == "raw_in_and_acc_out" and self.field_names == ['density','velocity']:
+            # for input, idx 0 is the raw value of density and velocity.
+            sample[0,0,:,:] = (sample[0,0,:,:] - self.mean['rho']) / self.std['rho'] 
+            sample[0,1,:,:] = (sample[0,1,:,:] - self.mean['u']) / self.std['u']
+            sample[0,2,:,:] = (sample[0,2,:,:] - self.mean['v']) / self.std['v']
+
+            # for output, idx1 is the acceleration of density and velocity
+            sample[1:,0,:,:] = (sample[1:,0,:,:] - self.mean['drho_dt']) / self.std['drho_dt'] 
+            sample[1:,1,:,:] = (sample[1:,1,:,:] - self.mean['du_dt']) / self.std['du_dt']
+            sample[1:,2,:,:] = (sample[1:,2,:,:] - self.mean['dv_dt']) / self.std['dv_dt']
+
+            if self.mode == 'infer':
+                # extra_field is untouched, hence not normalized.
+                extra_field = kwargs['extra_field']
+                # extra_field[:,0,:,:] = (extra_field[:,0,:,:] - self.mean['rho']) / self.std['rho']
+                # extra_field[:,1,:,:] = (extra_field[:,1,:,:] - self.mean['u']) / self.std['u']
+                # extra_field[:,2,:,:] = (extra_field[:,2,:,:] - self.mean['v']) / self.std['v']
+                
+                if self.param_names!=[]:
+                    Re = kwargs['Re']
+                    Re = (Re- self.mean['Re']) / self.std['Re']
+                    return sample, Re, extra_field
+                else:
+                    return sample, extra_field
+        
         else:
             print("Case name not recognized")
             raise NotImplementedError()

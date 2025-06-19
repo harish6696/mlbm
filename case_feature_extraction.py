@@ -270,7 +270,6 @@ def main(cfg: DictConfig):
                 
                 """New code starts from here"""
                 # plot one validation image just for sample 0 from the last batch
-                # TODO: write for all cases
                 if cfg.data.case_name == "raw_in_raw_out" or cfg.data.case_name == "3_hist_raw_in_raw_out":                    
                     validator.compare(
                         invar=(batch[0].to(dist.device)),
@@ -316,7 +315,7 @@ def main(cfg: DictConfig):
                         step=pseudo_epoch
                     )
 
-                elif cfg.data.case_name=="acc_and_raw_in_raw_out":
+                elif cfg.data.case_name == "acc_and_raw_in_raw_out":
                     validator.compare(
                         invar=(batch[0].to(dist.device)),
                         target=(batch[1].to(dist.device)),
@@ -324,6 +323,43 @@ def main(cfg: DictConfig):
                         step=pseudo_epoch
                     )
 
+                elif cfg.data.case_name == "raw_in_acc_out":
+                    # extra_field stores the velocity u_(n-1)
+                    extra_field = batch[2]
+                    extra_field = extra_field.squeeze(dim=1).to("cuda")
+
+                    # u'_(n) = u_(n) - u_(n-1)
+                    output = forward_eval(batch[0].to(dist.device))
+                    target = (batch[1]).to(dist.device)
+
+                    # undo normalization to acceleration
+                    output_renormalized = undo_acc_normalization(copy.deepcopy(output), cfg.data.normalization_mean, cfg.data.normalization_std)
+                    target_renormalized = undo_acc_normalization(copy.deepcopy(target), cfg.data.normalization_mean, cfg.data.normalization_std)
+
+                    # u_(n) = u'_(n) + u_(n-1)
+                    output_velocity = output_renormalized + extra_field
+                    target_velocity = target_renormalized + extra_field
+
+                    # normalize the output and target velocity
+                    output_velocity[:,0,:,:] = (output_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    output_velocity[:,1,:,:] = (output_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    output_velocity[:,2,:,:] = (output_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    target_velocity[:,0,:,:] = (target_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    target_velocity[:,1,:,:] = (target_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    target_velocity[:,2,:,:] = (target_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    # masking
+                    output_velocity = output_velocity*mask
+                    target_velocity = target_velocity*mask
+
+                    validator.compare(
+                        invar=(batch[0].to(dist.device)),
+                        target=target_velocity,
+                        prediction=output_velocity,
+                        step=pseudo_epoch
+                    )
+                    
                 else:
                     raise ValueError("Case name not recognized")
                 

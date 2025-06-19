@@ -375,6 +375,72 @@ def main(cfg: DictConfig):
             print(f"Loss list for batch_{batch_idx}: ", loss)
             batch_loss_list.append(loss)
         
+        elif cfg.data.case_name == "raw_in_acc_out":
+            extra_field = batch[2].squeeze(dim=1).to("cuda") #has GT information
+            for t in range(cfg.data.n_rollout_steps): #TODO: check rollout steps
+                with torch.no_grad():
+                    output = model_inf(input_tensor)
+                    
+                    # undo normalization to acc data
+                    output_renormalized = undo_acc_normalization(copy.deepcopy(output), cfg.data.normalization_mean, cfg.data.normalization_std)
+                    target_tensor_renormalized = undo_acc_normalization(copy.deepcopy(target_tensor[:,t,:,:,:]), cfg.data.normalization_mean, cfg.data.normalization_std)                    
+                    
+                    if(t==0):
+                        # for t = 0, i.e. the first rollout step, extra_field is added to the acc output.
+                        output_velocity = output_renormalized+extra_field
+                        target_tensor_velocity = target_tensor_renormalized+extra_field
+                    else:
+                        # for other steps, the previously predicted raw value is added. 
+                        output_velocity = output_renormalized+output_velocity
+                        target_tensor_velocity = target_tensor_renormalized+target_tensor_velocity
+                    
+                    output = output*mask
+                    target_tensor[:,t,:,:,:] = target_tensor[:,t,:,:,:]*mask #TODO: check shape
+
+                    # normalize the output and target_tensor_velocity for loss computation
+                    output_velocity[:,0,:,:] = (output_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    output_velocity[:,1,:,:] = (output_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    output_velocity[:,2,:,:] = (output_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    target_tensor_velocity[:,0,:,:] = (target_tensor_velocity[:,0,:,:] - cfg.data.normalization_mean['rho'])/cfg.data.normalization_std['rho']
+                    target_tensor_velocity[:,1,:,:] = (target_tensor_velocity[:,1,:,:] - cfg.data.normalization_mean['u'])/cfg.data.normalization_std['u']
+                    target_tensor_velocity[:,2,:,:] = (target_tensor_velocity[:,2,:,:] - cfg.data.normalization_mean['v'])/cfg.data.normalization_std['v']
+
+                    output_velocity = output_velocity*mask
+                    target_tensor_velocity = target_tensor_velocity*mask
+
+                    step_loss = MSELoss()(output_velocity, target_tensor_velocity) #loss always computed with the normalized values.
+
+                    validator.compare(  #all values psassed to compare are normalized. before plotting, the variables are brought to physical units by undo_normalization
+                            invar=input_tensor,
+                            target=target_tensor_velocity,
+                            prediction=output_velocity,
+                            step=t,
+                        )
+
+                    loss.append(step_loss.item())
+                    
+                    """
+                    # renormalize (to physical real value) the output and target_tensor_velocity to physical units as they will be used in the next iteration to add to the acceleration
+                    output_velocity[:,0,:,:]= output_velocity[:,0,:,:]*cfg.data.normalization_std['rho'] + cfg.data.normalization_mean['rho']
+                    output_velocity[:,1,:,:]= output_velocity[:,1,:,:]*cfg.data.normalization_std['u'] + cfg.data.normalization_mean['u']
+                    output_velocity[:,2,:,:]= output_velocity[:,2,:,:]*cfg.data.normalization_std['v'] + cfg.data.normalization_mean['v']
+                    """
+
+                    # renormalize (to physical value) the target_tensor_velocity to physical units
+                    target_tensor_velocity[:,0,:,:]= target_tensor_velocity[:,0,:,:]*cfg.data.normalization_std['rho'] + cfg.data.normalization_mean['rho']
+                    target_tensor_velocity[:,1,:,:]= target_tensor_velocity[:,1,:,:]*cfg.data.normalization_std['u'] + cfg.data.normalization_mean['u']
+                    target_tensor_velocity[:,2,:,:]= target_tensor_velocity[:,2,:,:]*cfg.data.normalization_std['v'] + cfg.data.normalization_mean['v']
+                    
+                    # new input_tensor uses the normalized output_velocity (physical) value
+                    input_tensor = output_velocity.detach().clone()
+                    
+                    if cfg.data.param_names is not None:
+                        input_tensor = torch.cat((input_tensor, param_tensor), dim=1)
+            
+            print(f"Loss list for batch_{batch_idx}: ", loss)
+            batch_loss_list.append(loss)
+
         else:
             raise ValueError("Case name not recognized")
     
